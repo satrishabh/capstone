@@ -1,0 +1,11 @@
+# Environment
+.venv/
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# FAISS generated files (if applicable)
+*.faiss
+*.pkl

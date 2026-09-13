@@ -1,0 +1,39 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	supervisor(supervisor)
+	telemetry(telemetry)
+	history(history)
+	rag(rag)
+	ml(ml)
+	diagnostic(diagnostic)
+	risk(risk)
+	human_approval(human_approval)
+	reanalyze(reanalyze)
+	service_plan(service_plan)
+	report(report)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> supervisor;
+	diagnostic --> risk;
+	history --> diagnostic;
+	human_approval -.-> reanalyze;
+	human_approval -.-> service_plan;
+	ml --> diagnostic;
+	rag --> diagnostic;
+	reanalyze --> report;
+	risk -.-> human_approval;
+	risk -.-> report;
+	service_plan --> report;
+	supervisor --> history;
+	supervisor --> telemetry;
+	telemetry --> diagnostic;
+	telemetry --> ml;
+	telemetry --> rag;
+	report --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
