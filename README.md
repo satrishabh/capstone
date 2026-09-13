@@ -44,7 +44,7 @@ All RAG documents and test data are synthetic. They are not OEM documentation an
 ## RAG ingestion
 
 Example:
-    pip install langchain langchain-community chromadb sentence-transformers
+     pip install langgraph langchain langchain-community langchain-google-genai google-generativeai pandas numpy scikit-learn faiss-cpu sentence-transformers python-dotenv
 
 Then load every file in rag_docs/ into a vector database, split into chunks,
 create embeddings, and store metadata:
