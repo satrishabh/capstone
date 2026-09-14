@@ -19,10 +19,10 @@ graph TD;
 	__end__([<p>__end__</p>]):::last
 	__start__ --> supervisor;
 	diagnostic --> risk;
-	history --> ml;
+	history --> diagnostic;
 	human_approval -.-> reanalyze;
 	human_approval -.-> service_plan;
-	ml --> rag;
+	ml --> diagnostic;
 	rag --> diagnostic;
 	reanalyze --> report;
 	risk -.-> human_approval;
@@ -31,6 +31,7 @@ graph TD;
 	supervisor --> history;
 	supervisor --> telemetry;
 	telemetry --> ml;
+	telemetry --> rag;
 	report --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
