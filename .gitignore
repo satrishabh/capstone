@@ -10,3 +10,6 @@ __pycache__/
 # FAISS generated files (if applicable)
 *.faiss
 *.pkl
+
+# logs folder
+logs/
