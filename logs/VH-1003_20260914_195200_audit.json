@@ -1,0 +1,157 @@
+[
+    {
+        "timestamp": "2026-09-15T01:21:49.774840+05:30",
+        "node": "supervisor",
+        "message": "Workflow started"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:49.775221+05:30",
+        "node": "supervisor",
+        "message": "Workflow started"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:49.775766+05:30",
+        "node": "history_agent",
+        "message": "Historical vehicle information retrieved"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:49.775888+05:30",
+        "node": "telemetry_agent",
+        "message": "Found 0 abnormal parameters"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:50.036116+05:30",
+        "node": "ml_agent",
+        "message": "Failure probability=0.215"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:50.326989+05:30",
+        "node": "rag_agent",
+        "message": "Retrieved 5 FAISS documents"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:57.102771+05:30",
+        "node": "diagnostic_agent",
+        "message": "Diagnostic assessment generated"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:49.774840+05:30",
+        "node": "supervisor",
+        "message": "Workflow started"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:49.775221+05:30",
+        "node": "supervisor",
+        "message": "Workflow started"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:49.775766+05:30",
+        "node": "history_agent",
+        "message": "Historical vehicle information retrieved"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:49.775888+05:30",
+        "node": "telemetry_agent",
+        "message": "Found 0 abnormal parameters"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:50.036116+05:30",
+        "node": "ml_agent",
+        "message": "Failure probability=0.215"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:50.326989+05:30",
+        "node": "rag_agent",
+        "message": "Retrieved 5 FAISS documents"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:57.102771+05:30",
+        "node": "diagnostic_agent",
+        "message": "Diagnostic assessment generated"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:57.104343+05:30",
+        "node": "risk_agent",
+        "message": "Risk=LOW, score=5"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:49.774840+05:30",
+        "node": "supervisor",
+        "message": "Workflow started"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:49.775221+05:30",
+        "node": "supervisor",
+        "message": "Workflow started"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:49.775766+05:30",
+        "node": "history_agent",
+        "message": "Historical vehicle information retrieved"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:49.775888+05:30",
+        "node": "telemetry_agent",
+        "message": "Found 0 abnormal parameters"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:50.036116+05:30",
+        "node": "ml_agent",
+        "message": "Failure probability=0.215"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:50.326989+05:30",
+        "node": "rag_agent",
+        "message": "Retrieved 5 FAISS documents"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:57.102771+05:30",
+        "node": "diagnostic_agent",
+        "message": "Diagnostic assessment generated"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:49.774840+05:30",
+        "node": "supervisor",
+        "message": "Workflow started"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:49.775221+05:30",
+        "node": "supervisor",
+        "message": "Workflow started"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:49.775766+05:30",
+        "node": "history_agent",
+        "message": "Historical vehicle information retrieved"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:49.775888+05:30",
+        "node": "telemetry_agent",
+        "message": "Found 0 abnormal parameters"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:50.036116+05:30",
+        "node": "ml_agent",
+        "message": "Failure probability=0.215"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:50.326989+05:30",
+        "node": "rag_agent",
+        "message": "Retrieved 5 FAISS documents"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:57.102771+05:30",
+        "node": "diagnostic_agent",
+        "message": "Diagnostic assessment generated"
+    },
+    {
+        "timestamp": "2026-09-15T01:21:57.104343+05:30",
+        "node": "risk_agent",
+        "message": "Risk=LOW, score=5"
+    },
+    {
+        "timestamp": "2026-09-15T01:22:00.830042+05:30",
+        "node": "report",
+        "message": "Final report generated"
+    }
+]
