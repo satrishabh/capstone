@@ -777,7 +777,18 @@ def report(state: MaintenanceState):
         ]
     )
 
-    state["final_report"] = response.content
+    # Extract clean text from Gemini response
+    if isinstance(response.content, list):
+        report_text = "\n".join(
+            item["text"]
+            for item in response.content
+            if isinstance(item, dict) and item.get("type") == "text"
+        )
+    else:
+        report_text = response.content
+
+    state["final_report"] = report_text
+
     add_audit(state,"report","Final report generated")
 
     try:
@@ -789,6 +800,12 @@ def report(state: MaintenanceState):
     audit_file = write_audit_log(state)
     print("\nAudit log written to:")
     print(audit_file)
+
+    print("\n" + "=" * 60)
+    print("FINAL REPORT")
+    print("=" * 60)
+    print(state["final_report"])
+    print("=" * 60)
     return state
 
 
