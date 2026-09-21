@@ -297,114 +297,126 @@ def ml_agent(state: MaintenanceState):
         ]
     }
 
-
 # 6. DIAGNOSTIC AGENT
-def diagnostic_agent(state: MaintenanceState):
+def diagnostic_agent(state: MaintenanceState, max_retries: int = 3):
     print("\n>>> DIAGNOSTIC AGENT")
     telemetry = state["telemetry"]
     history = state["history"]
     rag = state.get("rag_evidence",[])
     ml_probability = state.get("ml_failure_probability",0.0)
 
-    # Convert RAG documents to context
-    rag_context = "\n\n".join(
-        [
-            (
-                f"SOURCE: {item['source']}\n"
-                f"{item['content']}"
-            )
-            for item in rag
-        ]
-    )
+    retries = 0
 
-    prompt = f"""
-    You are the Diagnostic Agent in a vehicle predictive-maintenance system.
-    
-    Your job is to reason over evidence.
-
-    DO NOT claim a component has definitely failed unless the evidence proves it.
-    Use:
-    1. Current telemetry
-    2. Historical information
-    3. Internal RAG evidence
-    4. ML failure probability
-    
-    CURRENT TELEMETRY:
-    {telemetry}
-    
-    HISTORY:
-    {history}
-    
-    RAG EVIDENCE:
-    {rag_context}
-    
-    ML FAILURE PROBABILITY:
-    {ml_probability:.3f}
-    
-    Produce a concise diagnostic assessment.
-    
-    Return:
-    
-    PRIMARY FINDING
-    POSSIBLE CAUSES
-    EVIDENCE
-    RECOMMENDED VERIFICATION
-    LIMITATIONS
-    
-    Remember:
-
-    - ML probability is an estimate, not proof.
-    - RAG evidence is supporting evidence, not physical proof.
-    - Telemetry anomalies may be caused by sensor faults.
-    - Recommend physical verification before declaring component failure.
-    """
-
-    response = llm.invoke(
-        [
-            HumanMessage(
-                content=prompt
-            )
-        ]
-    )
-
-    """
-    diagnosis_text = response.content
-    state["diagnosis"] = {
-        "assessment":
-            diagnosis_text,
-
-        "ml_failure_probability":
-            ml_probability
-    }
-    """
-    content = response.content
-    if isinstance(content, str):
-        diagnosis_text = content
-    elif isinstance(content, list):
-        text_parts = []
-        for item in content:
-            if isinstance(item, str):
-                text_parts.append(item)
-            elif isinstance(item, dict):
-                if item.get("type") == "text":
-                    text_parts.append(
-                        item.get("text", "")
+    while retries < max_retries:
+        try:
+            # Convert RAG documents to context
+            rag_context = "\n\n".join(
+                [
+                    (
+                        f"SOURCE: {item['source']}\n"
+                        f"{item['content']}"
                     )
+                    for item in rag
+                ]
+            )
 
-        diagnosis_text = "\n".join(
-            part for part in text_parts if part
-        )
-    else:
-        diagnosis_text = str(content)
+            prompt = f"""
+            You are the Diagnostic Agent in a vehicle predictive-maintenance system.
+            
+            Your job is to reason over evidence.
+
+            DO NOT claim a component has definitely failed unless the evidence proves it.
+            Use:
+            1. Current telemetry
+            2. Historical information
+            3. Internal RAG evidence
+            4. ML failure probability
+            
+            CURRENT TELEMETRY:
+            {telemetry}
+            
+            HISTORY:
+            {history}
+            
+            RAG EVIDENCE:
+            {rag_context}
+            
+            ML FAILURE PROBABILITY:
+            {ml_probability:.3f}
+            
+            Produce a concise diagnostic assessment.
+            
+            Return:
+            
+            PRIMARY FINDING
+            POSSIBLE CAUSES
+            EVIDENCE
+            RECOMMENDED VERIFICATION
+            LIMITATIONS
+            
+            Remember:
+
+            - ML probability is an estimate, not proof.
+            - RAG evidence is supporting evidence, not physical proof.
+            - Telemetry anomalies may be caused by sensor faults.
+            - Recommend physical verification before declaring component failure.
+            """
+
+            response = llm.invoke(
+                [
+                    HumanMessage(
+                        content=prompt
+                    )
+                ]
+            )
+
+            if response:
+                content = response.content
+                if isinstance(content, str):
+                    diagnosis_text = content
+                elif isinstance(content, list):
+                    text_parts = []
+                    for item in content:
+                        if isinstance(item, str):
+                            text_parts.append(item)
+                        elif isinstance(item, dict):
+                            if item.get("type") == "text":
+                                text_parts.append(
+                                    item.get("text", "")
+                                )
+
+                    diagnosis_text = "\n".join(
+                        part for part in text_parts if part
+                    )
+                else:
+                    diagnosis_text = str(content)
+                state["diagnosis"] = {
+                    "assessment": diagnosis_text,
+                    "ml_failure_probability": ml_probability
+                }
+                print("\nDiagnostic assessment:")
+                print(diagnosis_text)
+                state["diagnosis_status"] = True
+                add_audit(state,"diagnostic_agent","Diagnostic assessment generated")
+                return state
+            else:
+                retries += 1
+                continue
+        except Exception as e:
+            print(f"Attempt {retries + 1} failed: {str(e)}")
+            retries += 1
+
     state["diagnosis"] = {
-        "assessment": diagnosis_text,
+        "assessment": "Diagnosis Failed",
         "ml_failure_probability": ml_probability
     }
-    print("\nDiagnostic assessment:")
-    print(diagnosis_text)
-    add_audit(state,"diagnostic_agent","Diagnostic assessment generated")
+    state["diagnosis_status"] = False
+    print("\nDiagnostic Assessment Failed")
+    add_audit(state,"diagnostic_agent","Diagnostic assessment failed")
     return state
 
+def diagonsis_validation(state : MaintenanceState) -> bool:
+    return state['diagnosis_status']
 
 # 7. RISK / DECISION AGENT
 def risk_agent(state: MaintenanceState):
@@ -535,7 +547,6 @@ def human_approval(state: MaintenanceState):
     add_audit(state,"human_approval",f"Decision={state['human_decision']}")
     return state
     """
-
 def human_approval(state: MaintenanceState):
 
     print("\n>>> HUMAN APPROVAL REQUIRED")
@@ -560,35 +571,27 @@ def human_approval(state: MaintenanceState):
     print("-" * 60)
 
     #Get human input from terminal
-    while True:
-        human_input = input(
-            "\nEnter your decision (APPROVE/REJECT): "
-        ).strip().upper()
-        if human_input in ["APPROVE", "REJECT"]:
-            break
-        print("Invalid input. Please enter APPROVE or REJECT.")
+    approval = interrupt({
+        "message": "Do you want to approve?"
+    })
 
     #optional feedback
     feedback = input("Enter optional feedback: ").strip()
 
-    # Store human decision
-    state["human_decision"] = human_input
-    state["human_feedback"] = feedback
-    print(f"\nHuman decision: {human_input}")
-
-    if feedback:
-        print(f"Human feedback: {feedback}")
-
-    add_audit(state,"human_approval",f"Decision={human_input}, Feedback={feedback}")
-    return state
+    if approval.lower() in ["approve", "yes", "true", "y"]:
+        state["human_decision"] = True
+        state["human_feedback"] = feedback
+        add_audit(state,"human_approval",f"Decision={state['human_decision']}")
+        return state
+    else:
+        state["human_decision"] = False
+        state["human_feedback"] = feedback
+        add_audit(state,"human_approval",f"Decision={state['human_decision']}")
+        return state
 
 # 10. ROUTE AFTER HUMAN
-def route_after_human(state: MaintenanceState) -> Literal["service_plan","reanalyze"]:
-    decision = (state.get("human_decision"))
-    if decision == "APPROVE":
-        return "service_plan"
-    return "reanalyze"
-
+def route_after_human(state: MaintenanceState) -> bool:
+    return state['human_decision']
 
 # 11. RE-ANALYSIS
 def reanalyze(state: MaintenanceState):
@@ -786,7 +789,12 @@ def build_workflow():
         "diagnostic"
     )
 
-    graph.add_edge("diagnostic","risk")
+    
+    graph.add_conditional_edges("diagnostic",diagonsis_validation,
+                                {
+                                    True:"risk",
+                                    False:END
+                                })
 
     # Risk conditional routing
     graph.add_conditional_edges("risk",route_after_risk,

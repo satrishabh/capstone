@@ -19,12 +19,13 @@ class MaintenanceState(TypedDict, total=False):
 
     #diagnosis
     diagnosis: dict
+    diagnosis_status : bool
 
     #risk agent
     risk_decision: dict
 
     #human approval
-    human_decision: Optional[str]
+    human_decision: bool
     human_feedback: Optional[str]
 
     #service
