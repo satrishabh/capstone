@@ -582,6 +582,41 @@ def human_approval(state: MaintenanceState):
     add_audit(state,"human_approval",f"Decision={human_input}, Feedback={feedback}")
     return state
 
+
+def human_approval_web(state: MaintenanceState):
+    print("\n>>> HUMAN APPROVAL REQUIRED (web)")
+    risk = state["risk_decision"]
+    diagnosis = state["diagnosis"]
+    approval_request = {
+        "message": (
+            "Critical vehicle maintenance "
+            "decision requires human approval."
+        ),
+        "vehicle_id": state["vehicle_id"],
+        "risk_score": risk["risk_score"],
+        "risk_level": risk["risk_level"],
+        "diagnosis": diagnosis,
+        "options": ["APPROVE", "REJECT"],
+    }
+
+    human_response = interrupt(approval_request)
+
+    if isinstance(human_response, dict):
+        state["human_decision"] = human_response.get("decision")
+        state["human_feedback"] = human_response.get("feedback", "")
+    else:
+        state["human_decision"] = str(human_response)
+        state["human_feedback"] = ""
+
+    print("Human decision:", state["human_decision"])
+    add_audit(
+        state,
+        "human_approval",
+        f"Decision={state['human_decision']}, Feedback={state.get('human_feedback', '')}",
+    )
+    return state
+
+
 # 10. ROUTE AFTER HUMAN
 def route_after_human(state: MaintenanceState) -> Literal["service_plan","reanalyze"]:
     decision = (state.get("human_decision"))
@@ -753,9 +788,11 @@ def save_workflow_graph(app):
 
 
 # BUILD GRAPH
-def build_workflow():
+def build_workflow(for_web: bool = False):
 
     graph = StateGraph(MaintenanceState)
+
+    approval_node = human_approval_web if for_web else human_approval
 
     # Nodes
     graph.add_node("supervisor",supervisor)
@@ -765,7 +802,7 @@ def build_workflow():
     graph.add_node("ml",ml_agent)
     graph.add_node("diagnostic",diagnostic_agent)
     graph.add_node("risk",risk_agent)
-    graph.add_node("human_approval",human_approval)
+    graph.add_node("human_approval",approval_node)
     graph.add_node("reanalyze",reanalyze)
     graph.add_node("service_plan",service_plan)
     graph.add_node("report",report)
@@ -821,7 +858,12 @@ def build_workflow():
     # Final
     graph.add_edge("report",END)
     print("The graph:",graph)
-    app=graph.compile()
+
+    if for_web:
+        from langgraph.checkpoint.memory import MemorySaver
+        app = graph.compile(checkpointer=MemorySaver())
+    else:
+        app = graph.compile()
 
     #saving the graph chart to png
     save_workflow_graph(app)
