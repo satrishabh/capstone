@@ -5,7 +5,6 @@ config:
 ---
 graph TD;
 	__start__([<p>__start__</p>]):::first
-	supervisor(supervisor)
 	telemetry(telemetry)
 	history(history)
 	rag(rag)
@@ -17,9 +16,11 @@ graph TD;
 	service_plan(service_plan)
 	report(report)
 	__end__([<p>__end__</p>]):::last
-	__start__ --> supervisor;
+	__start__ --> history;
+	__start__ --> telemetry;
 	diagnostic --> risk;
-	history --> diagnostic;
+	history --> ml;
+	history --> rag;
 	human_approval -.-> reanalyze;
 	human_approval -.-> service_plan;
 	ml --> diagnostic;
@@ -28,8 +29,6 @@ graph TD;
 	risk -.-> human_approval;
 	risk -.-> report;
 	service_plan --> report;
-	supervisor --> history;
-	supervisor --> telemetry;
 	telemetry --> ml;
 	telemetry --> rag;
 	report --> __end__;

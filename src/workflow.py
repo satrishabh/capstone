@@ -19,6 +19,7 @@ from rag import retrieve_documents
 from ml_model import (
     predict_failure_probability
 )
+from tools import analyze_telemetry
 
 
 #GEMINI LLM
@@ -82,98 +83,20 @@ def supervisor(state: MaintenanceState):
 # 2. TELEMETRY AGENT
 def telemetry_agent(state: MaintenanceState):
     print("\n>>> TELEMETRY AGENT")
+    telemetry = state.get("telemetry",{})
+    result = analyze_telemetry.invoke({
+        "telemetry": telemetry
+    })
 
-    telemetry = state.get("telemetry", {})
-    abnormalities = []
+    abnormalities = result["abnormalities"]
 
-    # Oil pressure
-    oil_pressure = telemetry.get("oil_pressure")
-
-    if oil_pressure is not None:
-        if oil_pressure < 1.5:
-            abnormalities.append({
-                "parameter": "oil_pressure",
-                "value": oil_pressure,
-                "severity": "CRITICAL",
-                "reason": "Oil pressure below 1.5 bar"
-            })
-        elif oil_pressure < 2.0:
-            abnormalities.append({
-                "parameter": "oil_pressure",
-                "value": oil_pressure,
-                "severity": "WARNING",
-                "reason": "Oil pressure below normal range"
-            })
-
-    # Coolant
-    coolant = telemetry.get("coolant_temperature")
-
-    if coolant is not None:
-        if coolant > 110:
-            abnormalities.append({
-                "parameter": "coolant_temperature",
-                "value": coolant,
-                "severity": "CRITICAL",
-                "reason": "Engine overheating"
-            })
-        elif coolant > 105:
-            abnormalities.append({
-                "parameter": "coolant_temperature",
-                "value": coolant,
-                "severity": "WARNING",
-                "reason": "Temperature above normal"
-            })
-
-    # Vibration
-    vibration = telemetry.get("vibration")
-
-    if vibration is not None:
-        if vibration > 7:
-            abnormalities.append({
-                "parameter": "vibration",
-                "value": vibration,
-                "severity": "HIGH",
-                "reason": "High engine vibration"
-            })
-        elif vibration > 5:
-            abnormalities.append({
-                "parameter": "vibration",
-                "value": vibration,
-                "severity": "WARNING",
-                "reason": "Elevated vibration"
-            })
-
-    # Battery
-    battery = telemetry.get("battery_voltage")
-
-    if battery is not None:
-        if battery < 12.0:
-            abnormalities.append({
-                "parameter": "battery_voltage",
-                "value": battery,
-                "severity": "HIGH",
-                "reason": "Low battery voltage"
-            })
-        elif battery < 12.4:
-            abnormalities.append({
-                "parameter": "battery_voltage",
-                "value": battery,
-                "severity": "WARNING",
-                "reason": "Battery voltage is low"
-            })
-
-    # Return only the fields produced by this agent
     return {
-        "telemetry": {
-            "raw": telemetry,
-            "abnormalities": abnormalities
-        },
-
+        "telemetry": result,
         "audit_log": [
             {
                 "timestamp": datetime.now(timezone.utc)
-                    .astimezone(ZoneInfo("Asia/Kolkata"))
-                    .isoformat(),
+            .astimezone(ZoneInfo("Asia/Kolkata"))
+            .isoformat(),
                 "node": "telemetry_agent",
                 "message": (
                     f"Found {len(abnormalities)} "
@@ -187,26 +110,36 @@ def telemetry_agent(state: MaintenanceState):
 # 3. HISTORY AGENT
 def history_agent(state: MaintenanceState):
     print("\n>>> HISTORY AGENT")
+    history = state.get("history",{})
+    previous_faults = history.get("previous_faults",[])
+    maintenance = history.get("maintenance",[])
 
-    history = state.get("history", {})
-
-    previous_faults = history.get("previous_faults", [])
-    maintenance = history.get("maintenance", [])
-
+    """
+    state["history"] = {
+        "maintenance":
+            maintenance,
+        "previous_faults":
+            previous_faults,
+        "trend_summary":
+            "Historical information retrieved"
+    }
+    add_audit(state,"history_agent","Historical vehicle information retrieved")
+    return state
+    """
     return {
         "history": {
             "maintenance": maintenance,
             "previous_faults": previous_faults,
-            "trend_summary": "Historical information retrieved"
+            "trend_summary":
+                "Historical information retrieved"
         },
 
         "audit_log": [
             {
-                "timestamp": datetime.now(timezone.utc)
-                    .astimezone(ZoneInfo("Asia/Kolkata"))
-                    .isoformat(),
+                "timestamp": datetime.now(timezone.utc).astimezone(ZoneInfo("Asia/Kolkata")).isoformat(),
                 "node": "history_agent",
-                "message": "Historical vehicle information retrieved"
+                "message":
+                    "Historical vehicle information retrieved"
             }
         ]
     }
@@ -215,6 +148,7 @@ def history_agent(state: MaintenanceState):
 # 4. RAG AGENT
 def rag_agent(state: MaintenanceState):
     print("\n>>> RAG AGENT")
+    telemetry = state["telemetry"]["raw"]
 
     abnormalities = state["telemetry"]["abnormalities"]
     query_parts = []
@@ -227,10 +161,11 @@ def rag_agent(state: MaintenanceState):
         )
 
     query = "\n".join(query_parts)
-
     if not query:
-        query = "normal vehicle predictive maintenance"
-
+        query = (
+            "normal vehicle "
+            "predictive maintenance"
+        )
     print("FAISS Query:")
     print(query)
 
@@ -238,24 +173,27 @@ def rag_agent(state: MaintenanceState):
         query=query,
         k=5
     )
-
     rag_evidence = []
-
     for doc in documents:
         rag_evidence.append({
-            "source": doc["source"],
-            "content": doc["content"]
+            "source":doc["source"],
+            "content":doc["content"]
         })
 
+    #state["rag_evidence"] = rag_evidence
+    #add_audit(state,"rag_agent",f"Retrieved {len(rag_evidence)} FAISS documents")
     return {
         "rag_evidence": rag_evidence,
         "audit_log": [
             {
                 "timestamp": datetime.now(timezone.utc)
-                    .astimezone(ZoneInfo("Asia/Kolkata"))
-                    .isoformat(),
+                .astimezone(
+                    ZoneInfo("Asia/Kolkata")
+                )
+                .isoformat(),
                 "node": "rag_agent",
-                "message": f"Retrieved {len(rag_evidence)} FAISS documents"
+                "message":
+                    f"Retrieved {len(rag_evidence)} FAISS documents"
             }
         ]
     }
@@ -264,14 +202,14 @@ def rag_agent(state: MaintenanceState):
 # 5. ML AGENT
 def ml_agent(state: MaintenanceState):
     print("\n>>> ML FAILURE PREDICTION AGENT")
-
     telemetry = state["telemetry"]["raw"]
-
+    #telemetry = state.get("telemetry", {})
     try:
-        probability = predict_failure_probability(telemetry)
+        probability = (predict_failure_probability(telemetry))
     except Exception as e:
-        print("ML prediction failed:", e)
+        print("ML prediction failed:",e)
         probability = 0.0
+    state["ml_failure_probability"] = probability
 
     if probability >= 0.75:
         label = "HIGH"
@@ -280,19 +218,27 @@ def ml_agent(state: MaintenanceState):
     else:
         label = "LOW"
 
-    print(f"Failure probability: {probability:.2%}")
+    #state["ml_prediction_label"] = label
+    print(f"Failure probability: "f"{probability:.2%}")
     print(f"Prediction level: {label}")
 
+    #add_audit(state,"ml_agent",f"Failure probability={probability:.3f}")
+    #return state
     return {
-        "ml_failure_probability": probability,
-        "ml_prediction_label": label,
+        "ml_failure_probability":probability,
+        "ml_prediction_label":label,
         "audit_log": [
             {
-                "timestamp": datetime.now(timezone.utc)
-                    .astimezone(ZoneInfo("Asia/Kolkata"))
+                "timestamp":
+                    datetime.now(timezone.utc)
+                    .astimezone(
+                        ZoneInfo("Asia/Kolkata")
+                    )
                     .isoformat(),
-                "node": "ml_agent",
-                "message": f"Failure probability={probability:.3f}"
+                "node":
+                    "ml_agent",
+                "message":
+                    f"Failure probability={probability:.3f}"
             }
         ]
     }
@@ -396,15 +342,34 @@ def diagnostic_agent(state: MaintenanceState):
         )
     else:
         diagnosis_text = str(content)
-    state["diagnosis"] = {
-        "assessment": diagnosis_text,
-        "ml_failure_probability": ml_probability
-    }
+    #state["diagnosis"] = {"assessment": diagnosis_text,"ml_failure_probability": ml_probability}
     print("\nDiagnostic assessment:")
     print(diagnosis_text)
-    add_audit(state,"diagnostic_agent","Diagnostic assessment generated")
-    return state
+    #add_audit(state,"diagnostic_agent","Diagnostic assessment generated")
+    #return state
 
+    return {
+        "diagnosis": {
+            "assessment":
+                diagnosis_text,
+            "ml_failure_probability":
+                ml_probability
+        },
+        "audit_log": [
+            {
+                "timestamp":
+                    datetime.now(timezone.utc)
+                    .astimezone(
+                        ZoneInfo("Asia/Kolkata")
+                    )
+                    .isoformat(),
+                "node":
+                    "diagnostic_agent",
+                "message":
+                    "Diagnostic assessment generated"
+            }
+        ]
+    }
 
 # 7. RISK / DECISION AGENT
 def risk_agent(state: MaintenanceState):
@@ -713,29 +678,12 @@ def report(state: MaintenanceState):
         ]
     )
 
-    # Extract clean text from Gemini response
-    if isinstance(response.content, list):
-        report_text = "\n".join(
-            item["text"]
-            for item in response.content
-            if isinstance(item, dict) and item.get("type") == "text"
-        )
-    else:
-        report_text = response.content
-
-    state["final_report"] = report_text
-
+    state["final_report"] = response.content
     add_audit(state,"report","Final report generated")
 
     audit_file = write_audit_log(state)
     print("\nAudit log written to:")
     print(audit_file)
-
-    print("\n" + "=" * 60)
-    print("FINAL REPORT")
-    print("=" * 60)
-    print(state["final_report"])
-    print("=" * 60)
     return state
 
 
@@ -758,7 +706,7 @@ def build_workflow():
     graph = StateGraph(MaintenanceState)
 
     # Nodes
-    graph.add_node("supervisor",supervisor)
+    #graph.add_node("supervisor",supervisor)
     graph.add_node("telemetry",telemetry_agent)
     graph.add_node("history",history_agent)
     graph.add_node("rag",rag_agent)
@@ -771,20 +719,23 @@ def build_workflow():
     graph.add_node("report",report)
 
 
-    # START
-    graph.add_edge(START,"supervisor")
+    # START - Parallel Execution
+    graph.add_edge(START,"telemetry")
+    graph.add_edge(START, "history")
 
     # Supervisor - Parallel execution
-    graph.add_edge("supervisor", "telemetry")
-    graph.add_edge("supervisor","history")
+    #graph.add_edge("supervisor", "telemetry")
+    #graph.add_edge("supervisor","history")
 
     graph.add_edge("telemetry", "ml")
-    graph.add_edge("telemetry", "rag")
+    graph.add_edge("history", "ml")
 
-    graph.add_edge(
-        ["history", "ml", "rag"],
-        "diagnostic"
-    )
+    graph.add_edge("telemetry", "rag")
+    graph.add_edge("history", "rag")
+
+    #graph.add_edge("ml","rag")
+    graph.add_edge("ml", "diagnostic")
+    graph.add_edge("rag", "diagnostic")
 
     graph.add_edge("diagnostic","risk")
 
