@@ -33,13 +33,18 @@ LANGSMITH_PROJECT = os.getenv("LANGSMITH_PROJECT", "Demo")
 LANGSMITH_API_KEY = os.getenv("LANGSMITH_API_KEY", "")
 LANGSMITH_ENDPOINT = os.getenv("LANGSMITH_ENDPOINT", "https://api.smith.langchain.com")
 
-# Legacy LangChain env vars (for backward compatibility)
+# LangSmith environment variables
+if LANGSMITH_ENABLED:
+    os.environ["LANGSMITH_TRACING"] = "true"
+    os.environ["LANGSMITH_API_KEY"] = LANGSMITH_API_KEY
+    os.environ["LANGSMITH_PROJECT"] = LANGSMITH_PROJECT
+    os.environ["LANGSMITH_ENDPOINT"] = LANGSMITH_ENDPOINT
+
+# Legacy LangChain env vars (for backward compatibility with LangChain)
 os.environ["LANGCHAIN_TRACING_V2"] = "true" if LANGSMITH_TRACING else "false"
 os.environ["LANGCHAIN_PROJECT"] = LANGSMITH_PROJECT
 if LANGSMITH_API_KEY:
     os.environ["LANGCHAIN_API_KEY"] = LANGSMITH_API_KEY
-if LANGSMITH_ENDPOINT:
-    os.environ["LANGCHAIN_ENDPOINT"] = LANGSMITH_ENDPOINT
 
 LANGSMITH_ENABLED = LANGSMITH_TRACING and bool(LANGSMITH_API_KEY)
 

@@ -11,6 +11,19 @@ from state_schema import MaintenanceState
 
 logger = logging.getLogger(__name__)
 
+# Import LangSmith tracing with graceful fallback
+try:
+    from langsmith import traceable
+    LANGSMITH_AVAILABLE = True
+except ImportError:
+    LANGSMITH_AVAILABLE = False
+    def traceable(*args, **kwargs):
+        def decorator(fn):
+            return fn
+        if args and callable(args[0]):
+            return args[0]
+        return decorator
+
 
 class WorkflowGuardrail:
     """Base class for workflow guardrails."""
@@ -175,6 +188,7 @@ class OutputGuardrail(WorkflowGuardrail):
         return True, ""
 
 
+@traceable(name="pre_hook", run_type="tool")
 def pre_hook(state: MaintenanceState, node_name: str) -> Dict[str, Any]:
     """
     Execute before node runs.
@@ -205,6 +219,7 @@ def pre_hook(state: MaintenanceState, node_name: str) -> Dict[str, Any]:
     return {}
 
 
+@traceable(name="post_hook", run_type="tool")
 def post_hook(state: MaintenanceState, node_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
     """
     Execute after node runs.
