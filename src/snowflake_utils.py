@@ -41,6 +41,36 @@ def get_connection():
     return snowflake.connector.connect(**params)
 
 
+def test_connection():
+    """Test Snowflake connection and return status details."""
+    account = _get_secret("SNOWFLAKE_ACCOUNT", "jk73553.ap-southeast-7.aws")
+    user = _get_secret("SNOWFLAKE_USER", "RISHABDEVH")
+    password = _get_secret("SNOWFLAKE_PASSWORD", "")
+    warehouse = _get_secret("SNOWFLAKE_WAREHOUSE", "COMPUTE_WH")
+
+    info = {
+        "account": account,
+        "user": user,
+        "password_set": bool(password),
+        "password_len": len(password) if password else 0,
+        "warehouse": warehouse,
+    }
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT CURRENT_ACCOUNT(), CURRENT_USER(), CURRENT_ROLE()")
+        row = cur.fetchone()
+        conn.close()
+        info["status"] = "OK"
+        info["connected_account"] = row[0]
+        info["connected_user"] = row[1]
+        info["connected_role"] = row[2]
+    except Exception as e:
+        info["status"] = "FAILED"
+        info["error"] = str(e)
+    return info
+
+
 def load_test_cases_from_snowflake():
     conn = get_connection()
     try:

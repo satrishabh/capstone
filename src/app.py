@@ -16,6 +16,7 @@ from snowflake_utils import (
     load_test_cases_from_snowflake,
     get_reports_from_snowflake,
     get_telemetry_from_snowflake,
+    test_connection,
 )
 
 load_dotenv()
@@ -469,6 +470,19 @@ def render_sidebar():
         st.session_state.partial_state = None
         st.session_state.run_config = None
         st.rerun()
+
+    st.sidebar.divider()
+    if st.sidebar.button("Test Snowflake Connection"):
+        with st.sidebar:
+            info = test_connection()
+            if info["status"] == "OK":
+                st.success(f"Connected as {info['connected_user']} ({info['connected_role']})")
+            else:
+                st.error(f"Connection failed")
+                st.code(f"Account: {info['account']}\n"
+                        f"User: {info['user']}\n"
+                        f"Password set: {info['password_set']} (len={info['password_len']})\n"
+                        f"Error: {info.get('error', 'unknown')}")
 
 
 def render_snowflake_history():
