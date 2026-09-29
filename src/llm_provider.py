@@ -5,9 +5,13 @@ Fallback: Snowflake Cortex AI
 """
 import os
 import time
+import logging
 from abc import ABC, abstractmethod
 from typing import Optional
 from dotenv import load_dotenv
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -64,10 +68,12 @@ class GoogleGeminiProvider(LLMProvider):
             raise RuntimeError("Google Gemini API is not available")
 
         try:
+            logger.debug(f"[Gemini] Sending request (prompt length: {len(prompt)} chars)")
             response = self.llm.invoke([HumanMessage(content=prompt)])
             content = response.content
 
             if isinstance(content, str):
+                logger.debug(f"[Gemini] Received response ({len(content)} chars)")
                 return content
             elif isinstance(content, list):
                 text_parts = []
@@ -76,11 +82,15 @@ class GoogleGeminiProvider(LLMProvider):
                         text_parts.append(item)
                     elif isinstance(item, dict) and item.get("type") == "text":
                         text_parts.append(item.get("text", ""))
-                return "\n".join(part for part in text_parts if part)
+                result = "\n".join(part for part in text_parts if part)
+                logger.debug(f"[Gemini] Received response ({len(result)} chars)")
+                return result
             else:
-                return str(content)
+                result = str(content)
+                logger.debug(f"[Gemini] Received response ({len(result)} chars)")
+                return result
         except Exception as e:
-            print(f"Gemini API error: {str(e)}")
+            logger.error(f"[Gemini] API error: {str(e)}")
             raise
 
 
@@ -105,6 +115,7 @@ class SnowflakeCortexProvider(LLMProvider):
         """Generate completion using Snowflake Cortex."""
         conn = get_connection()
         try:
+            logger.debug(f"[Cortex] Sending request to model={self.model_name} (prompt length: {len(prompt)} chars)")
             cur = conn.cursor()
             cur.execute(
                 "SELECT SNOWFLAKE.CORTEX.COMPLETE(%s, %s) AS response",
@@ -114,12 +125,13 @@ class SnowflakeCortexProvider(LLMProvider):
             result = row[0] if row else ""
 
             if result:
-                elapsed_note = f" [Cortex model={self.model_name}]"
-                print(f"  Snowflake Cortex response received{elapsed_note}")
+                logger.debug(f"[Cortex] Received response from model={self.model_name} ({len(result)} chars)")
+            else:
+                logger.warning(f"[Cortex] Received empty response from model={self.model_name}")
 
             return result
         except Exception as e:
-            print(f"Snowflake Cortex error: {str(e)}")
+            logger.error(f"[Cortex] Error with model={self.model_name}: {str(e)}")
             raise
         finally:
             conn.close()
@@ -153,33 +165,38 @@ class FallbackLLMProvider(LLMProvider):
         if self.primary.is_available():
             for attempt in range(self.max_retries):
                 try:
-                    print(f"[LLM] Using PRIMARY provider (attempt {attempt + 1}/{self.max_retries})")
+                    logger.info(f"[LLM] Using PRIMARY provider: {self.primary.__class__.__name__} (attempt {attempt + 1}/{self.max_retries})")
                     result = self.primary.complete(prompt)
                     self.provider_usage["primary"] += 1
+                    logger.info(f"[LLM] PRIMARY provider succeeded with {len(result)} chars")
                     return result
                 except Exception as e:
-                    print(f"[LLM] PRIMARY provider failed: {str(e)}")
+                    logger.warning(f"[LLM] PRIMARY provider failed: {self.primary.__class__.__name__} - {str(e)}")
                     if attempt < self.max_retries - 1:
+                        logger.info(f"[LLM] Retrying in 1 second (attempt {attempt + 2}/{self.max_retries})...")
                         time.sleep(1)  # Brief backoff before retry
                     continue
 
         # Fall back to secondary provider
-        print("[LLM] Falling back to SECONDARY provider")
+        logger.warning(f"[LLM] ⚠️  PRIMARY provider exhausted - FALLING BACK to SECONDARY provider: {self.secondary.__class__.__name__}")
         if self.secondary.is_available():
             for attempt in range(self.max_retries):
                 try:
-                    print(f"[LLM] Using SECONDARY provider (attempt {attempt + 1}/{self.max_retries})")
+                    logger.info(f"[LLM] Using SECONDARY provider: {self.secondary.__class__.__name__} (attempt {attempt + 1}/{self.max_retries})")
                     result = self.secondary.complete(prompt)
                     self.provider_usage["secondary"] += 1
+                    logger.info(f"[LLM] SECONDARY provider succeeded with {len(result)} chars")
                     return result
                 except Exception as e:
-                    print(f"[LLM] SECONDARY provider failed: {str(e)}")
+                    logger.warning(f"[LLM] SECONDARY provider failed: {self.secondary.__class__.__name__} - {str(e)}")
                     if attempt < self.max_retries - 1:
+                        logger.info(f"[LLM] Retrying in 1 second (attempt {attempt + 2}/{self.max_retries})...")
                         time.sleep(1)
                     continue
 
         # Both providers failed
         self.provider_usage["failed"] += 1
+        logger.error(f"[LLM] ❌ Both PRIMARY and SECONDARY providers failed. Usage: {self.provider_usage}")
         raise RuntimeError(
             "Both primary (Gemini) and secondary (Snowflake Cortex) LLM providers failed"
         )
@@ -207,28 +224,30 @@ def get_llm_provider() -> LLMProvider:
 
     # Option 1: Both configured - use fallback
     if gemini_configured and snowflake_configured:
-        print("[LLM] Initializing with PRIMARY=Gemini, SECONDARY=Snowflake Cortex")
+        logger.info("[LLM] ✓ Both Gemini and Snowflake configured - Initializing with PRIMARY=Gemini, SECONDARY=Snowflake Cortex")
         try:
             primary = GoogleGeminiProvider()
             secondary = SnowflakeCortexProvider()
+            logger.info("[LLM] ✓ FallbackLLMProvider initialized successfully")
             return FallbackLLMProvider(primary, secondary)
         except Exception as e:
-            print(f"[LLM] Failed to initialize Gemini provider: {e}")
-            print("[LLM] Falling back to Snowflake only")
+            logger.warning(f"[LLM] Failed to initialize Gemini provider: {e}")
+            logger.info("[LLM] Falling back to Snowflake Cortex only")
             return SnowflakeCortexProvider()
 
     # Option 2: Only Gemini configured
     elif gemini_configured:
-        print("[LLM] Using PRIMARY=Gemini only")
+        logger.info("[LLM] ✓ Only Gemini configured - Using PRIMARY=Gemini")
         return GoogleGeminiProvider()
 
     # Option 3: Only Snowflake configured
     elif snowflake_configured:
-        print("[LLM] Using PRIMARY=Snowflake Cortex only")
+        logger.info("[LLM] ✓ Only Snowflake configured - Using PRIMARY=Snowflake Cortex")
         return SnowflakeCortexProvider()
 
     # Option 4: Nothing configured
     else:
+        logger.error("[LLM] ❌ No LLM provider configured!")
         raise ValueError(
             "No LLM provider configured. "
             "Set GOOGLE_API_KEY for Gemini or SNOWFLAKE_ACCOUNT for Cortex."

@@ -502,14 +502,20 @@ def render_sidebar():
 
     # LangSmith Tracing Status
     st.sidebar.subheader("🔍 LangSmith Tracing")
-    if LANGSMITH_ENABLED:
+    tracing_status = os.getenv("LANGSMITH_TRACING", "false").lower() == "true"
+    api_key_set = bool(os.getenv("LANGSMITH_API_KEY", ""))
+
+    if tracing_status and api_key_set:
         st.sidebar.success("✓ Tracing enabled")
         st.sidebar.caption(f"Project: {LANGSMITH_PROJECT}")
         langsmith_url = "https://smith.langchain.com/projects"
-        st.sidebar.markdown(f"[View traces →]({langsmith_url})", unsafe_allow_html=True)
+        st.sidebar.markdown(f"[View dashboard →]({langsmith_url})", unsafe_allow_html=True)
+    elif tracing_status:
+        st.sidebar.warning("⚠ LANGSMITH_API_KEY not set")
+        st.sidebar.caption("Tracing disabled — add key to .env")
     else:
-        st.sidebar.warning("✗ Tracing disabled")
-        st.sidebar.caption("Set LANGSMITH_API_KEY to enable")
+        st.sidebar.info("ℹ Tracing disabled")
+        st.sidebar.caption("Set LANGSMITH_TRACING=true to enable")
 
     st.sidebar.divider()
     if st.sidebar.button("Test Snowflake Connection"):
@@ -551,14 +557,6 @@ def render_sidebar():
                 st.sidebar.warning("No telemetry data found")
         except Exception as e:
             st.sidebar.error(f"Failed: {e}")
-
-    # LangSmith tracing link
-    from cortex_llm import is_tracing_enabled
-    if is_tracing_enabled():
-        project = os.getenv("LANGCHAIN_PROJECT", "capstone-predictive-maintenance")
-        st.sidebar.divider()
-        st.sidebar.markdown(f"**LangSmith Tracing: ON**")
-        st.sidebar.markdown(f"[Open LangSmith Dashboard](https://smith.langchain.com/o/default/projects/p/{project})")
 
 
 def render_snowflake_history():
@@ -638,6 +636,98 @@ def render_stage_reports():
         st.error(f"Could not list stage reports: {e}")
 
 
+def render_langsmith_traces():
+    st.header("🔍 LangSmith Traces")
+
+    if not LANGSMITH_ENABLED:
+        st.warning("LangSmith tracing is not enabled. Set LANGSMITH_API_KEY in .env to enable.")
+        st.code("""LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=your_api_key_here
+LANGSMITH_PROJECT=Demo""")
+        return
+
+    st.success(f"✓ Tracing enabled — Project: **{LANGSMITH_PROJECT}**")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown(
+            f"[📊 Open LangSmith Dashboard](https://smith.langchain.com/projects)",
+            unsafe_allow_html=True,
+        )
+    with col2:
+        st.markdown(
+            f"[📖 View Docs](https://docs.smith.langchain.com/)",
+            unsafe_allow_html=True,
+        )
+
+    st.divider()
+
+    try:
+        from langsmith import Client
+
+        client = Client(api_key=LANGSMITH_API_KEY, api_url=LANGSMITH_ENDPOINT)
+
+        st.subheader("Recent Traces")
+        limit = st.slider("Number of traces to show", 1, 50, 10)
+
+        if st.button("Refresh traces", type="primary"):
+            st.session_state['refresh_traces'] = True
+
+        traces = []
+        try:
+            for trace in client.list_runs(
+                project_name=LANGSMITH_PROJECT,
+                limit=limit,
+            ):
+                traces.append(trace)
+        except Exception as e:
+            st.error(f"Could not fetch traces: {e}")
+            return
+
+        if not traces:
+            st.info(f"No traces found in project '{LANGSMITH_PROJECT}'. Run an analysis to generate traces.")
+            return
+
+        st.write(f"**{len(traces)} trace(s) found**")
+
+        for trace in traces:
+            trace_id = trace.id
+            trace_name = trace.name or "unknown"
+            trace_status = "✓" if trace.error is None else "✗"
+            duration = trace.end_time - trace.start_time if trace.end_time else None
+            duration_str = f"{duration.total_seconds():.2f}s" if duration else "—"
+
+            with st.expander(f"{trace_status} {trace_name} | {duration_str} | {trace.start_time}"):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Trace ID", str(trace_id)[:16] + "...")
+                with col2:
+                    st.metric("Status", "Success" if trace.error is None else "Error")
+                with col3:
+                    st.metric("Duration", duration_str)
+
+                if trace.error:
+                    st.error(f"Error: {trace.error}")
+
+                if trace.inputs:
+                    st.subheader("Inputs")
+                    st.json(trace.inputs)
+
+                if trace.outputs:
+                    st.subheader("Outputs")
+                    st.json(trace.outputs)
+
+                st.markdown(
+                    f"[View in LangSmith →](https://smith.langchain.com/projects/p/{client.get_project(project_name=LANGSMITH_PROJECT).id}/r/{trace_id})",
+                    unsafe_allow_html=True,
+                )
+
+    except ImportError:
+        st.error("LangSmith client not installed. Install with: `pip install langsmith`")
+    except Exception as e:
+        st.error(f"Error loading traces: {e}")
+
+
 def main():
     st.set_page_config(
         page_title="Vehicle Predictive Maintenance",
@@ -650,7 +740,7 @@ def main():
 
     page = st.sidebar.radio(
         "Navigate",
-        ["Run Analysis", "Reports History", "Report Files", "Telemetry Data"],
+        ["Run Analysis", "Reports History", "Report Files", "Telemetry Data", "LangSmith Traces"],
         index=0,
     )
 
@@ -666,6 +756,8 @@ def main():
         render_stage_reports()
     elif page == "Telemetry Data":
         render_snowflake_telemetry()
+    elif page == "LangSmith Traces":
+        render_langsmith_traces()
     elif st.session_state.pending_interrupt is not None:
         render_approval_panel(
             st.session_state.pending_interrupt,

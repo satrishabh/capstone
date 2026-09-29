@@ -2,7 +2,11 @@
 import json
 import os
 import time
+from pathlib import Path
+from dotenv import load_dotenv
 from snowflake_utils import get_connection
+
+load_dotenv()
 
 CORTEX_MODEL = "llama3.1-8b"
 
