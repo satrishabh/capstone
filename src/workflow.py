@@ -1,4 +1,5 @@
 import os
+import logging
 from typing import Literal
 from pathlib import Path
 from datetime import datetime, timezone
@@ -10,15 +11,36 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Import config to set up LangSmith environment variables
 from config import LANGSMITH_ENABLED, LANGSMITH_PROJECT, LANGSMITH_API_KEY, LANGSMITH_ENDPOINT
 
-# Import LangSmith tracing
-from langsmith import traceable
+# Import LangSmith tracing - with error handling
+try:
+    from langsmith import traceable
+    from langsmith import run_trees
+    LANGSMITH_AVAILABLE = True
+    logger.info("[LangSmith] ✓ LangSmith SDK available")
+except ImportError:
+    LANGSMITH_AVAILABLE = False
+    logger.warning("[LangSmith] ❌ LangSmith SDK not available")
+    # Provide dummy decorator
+    def traceable(*args, **kwargs):
+        def decorator(fn):
+            return fn
+        if args and callable(args[0]):
+            return args[0]
+        return decorator
 
 # Set up LangSmith tracing via LangChain env vars (automatically used by LangChain)
 if LANGSMITH_ENABLED:
-    print(f"LangSmith tracing enabled for project: {LANGSMITH_PROJECT}")
+    logger.info(f"[LangSmith] ✓ Tracing enabled for project: {LANGSMITH_PROJECT}")
+    logger.debug(f"[LangSmith] Endpoint: {LANGSMITH_ENDPOINT}")
+else:
+    logger.warning("[LangSmith] ✗ Tracing disabled - set LANGSMITH_TRACING=true and LANGSMITH_API_KEY")
 
 from langgraph.graph import (
     StateGraph,
@@ -34,6 +56,7 @@ from ml_model import (
     predict_failure_probability
 )
 from tools import analyze_telemetry
+from hooks_and_guardrails import wrap_node, pre_hook, post_hook
 
 def add_audit(state: MaintenanceState,node: str,message: str = ""):
     logs = state.get("audit_log",[])
@@ -89,31 +112,44 @@ def supervisor(state: MaintenanceState):
 
 
 # 2. TELEMETRY AGENT
-@traceable(name="telemetry_agent")
+@traceable(
+    name="telemetry_agent",
+    run_type="chain",
+    tags=["telemetry", "analysis"],
+)
 def telemetry_agent(state: MaintenanceState):
+    logger.info("[telemetry_agent] Starting telemetry analysis")
     print("\n>>> TELEMETRY AGENT")
-    telemetry = state.get("telemetry",{})
-    result = analyze_telemetry.invoke({
-        "telemetry": telemetry
-    })
 
-    abnormalities = result["abnormalities"]
+    try:
+        telemetry = state.get("telemetry", {})
+        logger.debug(f"[telemetry_agent] Input telemetry: {list(telemetry.keys())}")
 
-    return {
-        "telemetry": result,
-        "audit_log": [
-            {
-                "timestamp": datetime.now(timezone.utc)
-            .astimezone(ZoneInfo("Asia/Kolkata"))
-            .isoformat(),
-                "node": "telemetry_agent",
-                "message": (
-                    f"Found {len(abnormalities)} "
-                    f"abnormal parameters"
-                )
-            }
-        ]
-    }
+        result = analyze_telemetry.invoke({
+            "telemetry": telemetry
+        })
+
+        abnormalities = result.get("abnormalities", [])
+        logger.info(f"[telemetry_agent] ✓ Found {len(abnormalities)} abnormal parameters")
+
+        return {
+            "telemetry": result,
+            "audit_log": [
+                {
+                    "timestamp": datetime.now(timezone.utc)
+                .astimezone(ZoneInfo("Asia/Kolkata"))
+                .isoformat(),
+                    "node": "telemetry_agent",
+                    "message": (
+                        f"Found {len(abnormalities)} "
+                        f"abnormal parameters"
+                    )
+                }
+            ]
+        }
+    except Exception as e:
+        logger.error(f"[telemetry_agent] ❌ Error: {str(e)}")
+        raise
 
 
 # 3. HISTORY AGENT
