@@ -226,3 +226,66 @@ def get_telemetry_from_snowflake(vehicle_id=None):
         return [dict(zip(columns, row)) for row in cur.fetchall()]
     finally:
         conn.close()
+
+
+def save_report_to_stage(report_id, vehicle_id, report_text):
+    """Save a markdown report file to Snowflake internal stage."""
+    import tempfile
+    conn = get_connection()
+    try:
+        filename = f"{vehicle_id}_{report_id}_report.md"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as f:
+            f.write(report_text)
+            tmp_path = f.name
+
+        cur = conn.cursor()
+        stage_path = f"@REPORT_FILES/reports/{vehicle_id}/"
+        cur.execute(f"PUT 'file://{tmp_path}' '{stage_path}' AUTO_COMPRESS=FALSE OVERWRITE=TRUE")
+        os.unlink(tmp_path)
+
+        # Rename to proper filename in stage
+        print(f"Report uploaded to stage: {stage_path}{filename}")
+        return f"{stage_path}{filename}"
+    except Exception as e:
+        print(f"Error saving report to stage: {e}")
+        return None
+    finally:
+        conn.close()
+
+
+def list_stage_reports():
+    """List all report files in the internal stage."""
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("LIST @REPORT_FILES/reports/")
+        columns = [desc[0] for desc in cur.description]
+        return [dict(zip(columns, row)) for row in cur.fetchall()]
+    except Exception:
+        return []
+    finally:
+        conn.close()
+
+
+def download_stage_report(stage_path):
+    """Download a report file from the internal stage and return its content."""
+    import tempfile
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        tmp_dir = tempfile.mkdtemp()
+        cur.execute(f"GET '{stage_path}' 'file://{tmp_dir}/'")
+        # Find the downloaded file
+        for fname in os.listdir(tmp_dir):
+            fpath = os.path.join(tmp_dir, fname)
+            with open(fpath, "r", encoding="utf-8") as f:
+                content = f.read()
+            os.unlink(fpath)
+            os.rmdir(tmp_dir)
+            return content
+        return None
+    except Exception as e:
+        print(f"Error downloading from stage: {e}")
+        return None
+    finally:
+        conn.close()

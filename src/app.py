@@ -17,6 +17,8 @@ from snowflake_utils import (
     get_reports_from_snowflake,
     get_telemetry_from_snowflake,
     test_connection,
+    list_stage_reports,
+    download_stage_report,
 )
 
 load_dotenv()
@@ -538,6 +540,30 @@ def render_snowflake_telemetry():
         st.error(f"Could not load telemetry: {e}")
 
 
+def render_stage_reports():
+    st.header("Report Files (Snowflake Stage)")
+    try:
+        files = list_stage_reports()
+        if not files:
+            st.info("No report files in stage yet. Run an analysis to generate one.")
+            return
+        st.write(f"**{len(files)} report file(s) stored in `@REPORT_FILES`**")
+        for f in files:
+            name = f.get("name", "")
+            size = f.get("size", 0)
+            modified = f.get("last_modified", "")
+            with st.expander(f"{name} ({size} bytes) — {modified}"):
+                if st.button(f"View report", key=f"view_{name}"):
+                    stage_path = f"@{name}" if not name.startswith("@") else name
+                    content = download_stage_report(stage_path)
+                    if content:
+                        st.markdown(content)
+                    else:
+                        st.warning("Could not download report content.")
+    except Exception as e:
+        st.error(f"Could not list stage reports: {e}")
+
+
 def main():
     st.set_page_config(
         page_title="Vehicle Predictive Maintenance",
@@ -550,7 +576,7 @@ def main():
 
     page = st.sidebar.radio(
         "Navigate",
-        ["Run Analysis", "Reports History", "Telemetry Data"],
+        ["Run Analysis", "Reports History", "Report Files", "Telemetry Data"],
         index=0,
     )
 
@@ -562,6 +588,8 @@ def main():
 
     if page == "Reports History":
         render_snowflake_history()
+    elif page == "Report Files":
+        render_stage_reports()
     elif page == "Telemetry Data":
         render_snowflake_telemetry()
     elif st.session_state.pending_interrupt is not None:

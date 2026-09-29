@@ -22,7 +22,7 @@ from langgraph.graph import (
 from langgraph.types import interrupt
 from state_schema import MaintenanceState
 from rag import retrieve_documents
-from snowflake_utils import save_report_to_snowflake, save_audit_log_to_snowflake
+from snowflake_utils import save_report_to_snowflake, save_audit_log_to_snowflake, save_report_to_stage
 from cortex_llm import cortex_complete
 from ml_model import (
     predict_failure_probability
@@ -749,15 +749,17 @@ def report(state: MaintenanceState):
     state["final_report"] = response
     add_audit(state,"report","Final report generated")
 
-    try:
-        save_final_report_to_s3(state)
-    except Exception as exc:
-        print(f"S3 upload failed: {exc}")
-        add_audit(state, "report", f"S3 upload failed: {exc}")
-
-    # Save to Snowflake
+    # Save to Snowflake table and stage
     import uuid
     report_id = f"{state.get('vehicle_id', 'UNK')}-{uuid.uuid4().hex[:8]}"
+
+    try:
+        save_report_to_stage(report_id, state.get("vehicle_id", ""), state.get("final_report", ""))
+        add_audit(state, "report", "Report file saved to Snowflake stage")
+    except Exception as exc:
+        print(f"Stage upload failed: {exc}")
+        add_audit(state, "report", f"Stage upload failed: {exc}")
+
     try:
         save_report_to_snowflake(report_id, state)
         add_audit(state, "report", f"Report saved to Snowflake: {report_id}")
