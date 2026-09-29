@@ -236,14 +236,13 @@ def save_report_to_stage(report_id, vehicle_id, report_text):
         filename = f"{vehicle_id}_{report_id}_report.md"
         with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as f:
             f.write(report_text)
-            tmp_path = f.name
+            tmp_path = f.name.replace("\\", "/")
 
         cur = conn.cursor()
         stage_path = f"@REPORT_FILES/reports/{vehicle_id}/"
         cur.execute(f"PUT 'file://{tmp_path}' '{stage_path}' AUTO_COMPRESS=FALSE OVERWRITE=TRUE")
-        os.unlink(tmp_path)
+        os.unlink(tmp_path.replace("/", os.sep))
 
-        # Rename to proper filename in stage
         print(f"Report uploaded to stage: {stage_path}{filename}")
         return f"{stage_path}{filename}"
     except Exception as e:

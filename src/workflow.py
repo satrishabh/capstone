@@ -10,6 +10,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Set LangSmith project if tracing is enabled
+if os.getenv("LANGCHAIN_TRACING_V2", "").lower() == "true":
+    os.environ.setdefault("LANGCHAIN_PROJECT", "capstone-predictive-maintenance")
+
 try:
     import boto3
 except ImportError:  # pragma: no cover

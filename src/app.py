@@ -486,6 +486,42 @@ def render_sidebar():
                         f"Password set: {info['password_set']} (len={info['password_len']})\n"
                         f"Error: {info.get('error', 'unknown')}")
 
+    if st.sidebar.button("Load Latest Telemetry"):
+        try:
+            from snowflake_utils import get_connection
+            conn = get_connection()
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT vehicle_id, timestamp, engine_rpm, coolant_temperature, "
+                "oil_pressure, battery_voltage, vibration, vehicle_speed "
+                "FROM VEHICLE_TELEMETRY ORDER BY timestamp DESC LIMIT 1"
+            )
+            row = cur.fetchone()
+            conn.close()
+            if row:
+                st.session_state["vehicle_id"] = row[0]
+                st.session_state["timestamp"] = str(row[1])
+                st.session_state["engine_rpm"] = float(row[2])
+                st.session_state["coolant_temperature"] = float(row[3])
+                st.session_state["oil_pressure"] = float(row[4])
+                st.session_state["battery_voltage"] = float(row[5])
+                st.session_state["vibration"] = float(row[6])
+                st.session_state["vehicle_speed"] = float(row[7])
+                st.sidebar.success(f"Loaded latest reading for {row[0]}")
+                st.rerun()
+            else:
+                st.sidebar.warning("No telemetry data found")
+        except Exception as e:
+            st.sidebar.error(f"Failed: {e}")
+
+    # LangSmith tracing link
+    from cortex_llm import is_tracing_enabled
+    if is_tracing_enabled():
+        project = os.getenv("LANGCHAIN_PROJECT", "capstone-predictive-maintenance")
+        st.sidebar.divider()
+        st.sidebar.markdown(f"**LangSmith Tracing: ON**")
+        st.sidebar.markdown(f"[Open LangSmith Dashboard](https://smith.langchain.com/o/default/projects/p/{project})")
+
 
 def render_snowflake_history():
     st.header("Snowflake Reports History")
