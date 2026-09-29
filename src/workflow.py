@@ -26,6 +26,7 @@ from langchain_google_genai import (
 from langchain_core.messages import HumanMessage
 from state_schema import MaintenanceState
 from rag import retrieve_documents
+from snowflake_utils import save_report_to_snowflake, save_audit_log_to_snowflake
 from ml_model import (
     predict_failure_probability
 )
@@ -653,13 +654,8 @@ def service_plan(state: MaintenanceState):
 
 def save_final_report_to_s3(state: MaintenanceState):
     """Upload the final report text to S3 using values from .env."""
-    bucket = (
-        os.getenv("S3_BUCKET_NAME")
-        or os.getenv("AWS_S3_BUCKET")
-        or os.getenv("S3_BUCKET")
-    )
+    bucket = os.getenv("S3_BUCKET_NAME")
     if not bucket:
-        print("S3 upload skipped: no bucket configured in .env (S3_BUCKET_NAME/AWS_S3_BUCKET).")
         return None
 
     if boto3 is None:
@@ -676,12 +672,10 @@ def save_final_report_to_s3(state: MaintenanceState):
     key = f"final-reports/{vehicle_id}/{timestamp}_report.md"
 
     region = os.getenv("AWS_DEFAULT_REGION") or os.getenv("AWS_REGION") or "us-east-1"
-    access_key = os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("S3_ACCESS_KEY_ID")
-    secret_key = os.getenv("AWS_SECRET_ACCESS_KEY") or os.getenv("S3_SECRET_ACCESS_KEY")
+    access_key = os.getenv("AWS_ACCESS_KEY_ID")
+    secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
     endpoint_url = (
         os.getenv("AWS_S3_ENDPOINT_URL")
-        or os.getenv("S3_ENDPOINT_URL")
-        or os.getenv("S3_ENDPOINT")
     )
 
     client_kwargs = {"region_name": region}
@@ -782,6 +776,21 @@ def report(state: MaintenanceState):
     except Exception as exc:
         print(f"S3 upload failed: {exc}")
         add_audit(state, "report", f"S3 upload failed: {exc}")
+
+    # Save to Snowflake
+    import uuid
+    report_id = f"{state.get('vehicle_id', 'UNK')}-{uuid.uuid4().hex[:8]}"
+    try:
+        save_report_to_snowflake(report_id, state)
+        add_audit(state, "report", f"Report saved to Snowflake: {report_id}")
+    except Exception as exc:
+        print(f"Snowflake save failed: {exc}")
+        add_audit(state, "report", f"Snowflake save failed: {exc}")
+
+    try:
+        save_audit_log_to_snowflake(report_id, state.get("vehicle_id", ""), state.get("audit_log", []))
+    except Exception as exc:
+        print(f"Snowflake audit log save failed: {exc}")
 
     audit_file = write_audit_log(state)
     print("\nAudit log written to:")

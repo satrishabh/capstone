@@ -8,6 +8,11 @@ from dotenv import load_dotenv
 from langgraph.types import Command
 
 from workflow import build_workflow
+from snowflake_utils import (
+    load_test_cases_from_snowflake,
+    get_reports_from_snowflake,
+    get_telemetry_from_snowflake,
+)
 
 load_dotenv()
 
@@ -31,6 +36,12 @@ def get_workflow():
 
 @st.cache_data
 def load_test_cases():
+    try:
+        cases = load_test_cases_from_snowflake()
+        if cases:
+            return cases
+    except Exception:
+        pass
     if not TEST_CASES_PATH.exists():
         return []
     with open(TEST_CASES_PATH, encoding="utf-8") as f:
@@ -457,6 +468,59 @@ def render_sidebar():
         st.rerun()
 
 
+def render_snowflake_history():
+    st.header("Snowflake Reports History")
+    try:
+        reports = get_reports_from_snowflake(limit=20)
+        if not reports:
+            st.info("No reports saved to Snowflake yet. Run an analysis to generate one.")
+            return
+        for rpt in reports:
+            risk_level = rpt.get("RISK_LEVEL", "UNKNOWN")
+            color = RISK_COLORS.get(risk_level, "#6c757d")
+            with st.expander(
+                f"{rpt.get('VEHICLE_ID', '?')} | "
+                f"{risk_level} (Score: {rpt.get('RISK_SCORE', '?')}) | "
+                f"{rpt.get('CREATED_AT', '')}"
+            ):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Risk Score", f"{rpt.get('RISK_SCORE', '—')}/100")
+                with col2:
+                    st.write("Risk Level")
+                    st.markdown(
+                        f"<span style='color:{color}; font-weight:bold;'>{risk_level}</span>",
+                        unsafe_allow_html=True,
+                    )
+                with col3:
+                    prob = rpt.get("ML_FAILURE_PROBABILITY")
+                    if prob is not None:
+                        st.metric("ML Failure Prob", f"{prob:.1%}")
+                if rpt.get("DIAGNOSIS"):
+                    st.subheader("Diagnosis")
+                    st.markdown(rpt["DIAGNOSIS"])
+                if rpt.get("FINAL_REPORT"):
+                    st.subheader("Final Report")
+                    st.markdown(rpt["FINAL_REPORT"])
+    except Exception as e:
+        st.error(f"Could not load Snowflake reports: {e}")
+
+
+def render_snowflake_telemetry():
+    st.header("Snowflake Telemetry Data")
+    try:
+        import pandas as pd
+        data = get_telemetry_from_snowflake()
+        if not data:
+            st.info("No telemetry data in Snowflake.")
+            return
+        df = pd.DataFrame(data)
+        display_cols = [c for c in df.columns if c not in ("ID", "LOADED_AT")]
+        st.dataframe(df[display_cols], use_container_width=True)
+    except Exception as e:
+        st.error(f"Could not load telemetry: {e}")
+
+
 def main():
     st.set_page_config(
         page_title="Vehicle Predictive Maintenance",
@@ -467,13 +531,23 @@ def main():
     init_session_state()
     render_sidebar()
 
+    page = st.sidebar.radio(
+        "Navigate",
+        ["Run Analysis", "Reports History", "Telemetry Data"],
+        index=0,
+    )
+
     st.title("Vehicle Predictive Maintenance")
     st.markdown(
         "Analyze vehicle telemetry, maintenance history, RAG evidence, and ML "
         "predictions through a multi-agent LangGraph workflow."
     )
 
-    if st.session_state.pending_interrupt is not None:
+    if page == "Reports History":
+        render_snowflake_history()
+    elif page == "Telemetry Data":
+        render_snowflake_telemetry()
+    elif st.session_state.pending_interrupt is not None:
         render_approval_panel(
             st.session_state.pending_interrupt,
             st.session_state.partial_state,

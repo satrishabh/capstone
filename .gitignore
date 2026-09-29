@@ -1,7 +1,7 @@
 # Environment
 .venv/
 .env
-
+.cortex
 # Python
 src/__pycache__/
 __pycache__/
