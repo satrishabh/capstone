@@ -10,16 +10,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Import config to set up LangSmith environment variables
-from config import LANGSMITH_ENABLED, LANGSMITH_PROJECT, LANGSMITH_API_KEY, LANGSMITH_ENDPOINT
+# Set LangSmith project if tracing is enabled
+if os.getenv("LANGCHAIN_TRACING_V2", "").lower() == "true":
+    os.environ.setdefault("LANGCHAIN_PROJECT", "capstone-predictive-maintenance")
 
-# Import LangSmith tracing
-from langsmith import traceable
-
-# Set up LangSmith tracing via LangChain env vars (automatically used by LangChain)
-if LANGSMITH_ENABLED:
-    print(f"LangSmith tracing enabled for project: {LANGSMITH_PROJECT}")
-
+try:
+    import boto3
+except ImportError:  # pragma: no cover
+    boto3 = None
 from langgraph.graph import (
     StateGraph,
     START,
@@ -29,7 +27,7 @@ from langgraph.types import interrupt
 from state_schema import MaintenanceState
 from rag import retrieve_documents
 from snowflake_utils import save_report_to_snowflake, save_audit_log_to_snowflake, save_report_to_stage
-from llm_provider import complete, init_llm_provider
+from cortex_llm import cortex_complete
 from ml_model import (
     predict_failure_probability
 )
@@ -67,7 +65,6 @@ def write_audit_log(state: MaintenanceState):
 
 
 # 1. SUPERVISOR (Parallel)
-@traceable(name="supervisor_agent")
 def supervisor(state: MaintenanceState):
     add_audit(state,"supervisor","Workflow started")
     print("\n==============================")
@@ -89,7 +86,6 @@ def supervisor(state: MaintenanceState):
 
 
 # 2. TELEMETRY AGENT
-@traceable(name="telemetry_agent")
 def telemetry_agent(state: MaintenanceState):
     print("\n>>> TELEMETRY AGENT")
     telemetry = state.get("telemetry",{})
@@ -117,7 +113,6 @@ def telemetry_agent(state: MaintenanceState):
 
 
 # 3. HISTORY AGENT
-@traceable(name="history_agent")
 def history_agent(state: MaintenanceState):
     print("\n>>> HISTORY AGENT")
     history = state.get("history",{})
@@ -156,7 +151,6 @@ def history_agent(state: MaintenanceState):
 
 
 # 4. RAG AGENT
-@traceable(name="rag_agent")
 def rag_agent(state: MaintenanceState):
     print("\n>>> RAG AGENT")
     telemetry = state["telemetry"]["raw"]
@@ -211,7 +205,6 @@ def rag_agent(state: MaintenanceState):
 
 
 # 5. ML AGENT
-@traceable(name="ml_agent")
 def ml_agent(state: MaintenanceState):
     print("\n>>> ML FAILURE PREDICTION AGENT")
     telemetry = state["telemetry"]["raw"]
@@ -256,7 +249,6 @@ def ml_agent(state: MaintenanceState):
     }
 
 # 6. DIAGNOSTIC AGENT
-@traceable(name="diagnostic_agent")
 def diagnostic_agent(state: MaintenanceState, max_retries: int = 3):
     print("\n>>> DIAGNOSTIC AGENT")
     telemetry = state["telemetry"]
@@ -321,7 +313,7 @@ def diagnostic_agent(state: MaintenanceState, max_retries: int = 3):
             - Recommend physical verification before declaring component failure.
             """
 
-            response = complete(prompt)
+            response = cortex_complete(prompt)
 
             if response:
                 content = response
@@ -372,7 +364,6 @@ def diagonsis_validation(state : MaintenanceState) -> bool:
     return state['diagnosis_status']
 
 # 7. RISK / DECISION AGENT
-@traceable(name="risk_agent")
 def risk_agent(state: MaintenanceState):
     print("\n>>> RISK / DECISION AGENT")
     abnormalities = state["telemetry"]["abnormalities"]
@@ -544,7 +535,6 @@ def human_approval(state: MaintenanceState):
         return state
 
 
-@traceable(name="human_approval_agent")
 def human_approval_web(state: MaintenanceState):
     print("\n>>> HUMAN APPROVAL REQUIRED (web)")
     risk = state["risk_decision"]
@@ -597,7 +587,6 @@ def route_after_human(state: MaintenanceState) -> Literal[
     return "reanalyze"
 
 # 11. RE-ANALYSIS
-@traceable(name="reanalyze_agent")
 def reanalyze(state: MaintenanceState):
     print("\n>>> RE-ANALYSIS")
     feedback = state.get("human_feedback","")
@@ -613,7 +602,6 @@ def reanalyze(state: MaintenanceState):
 
 
 # 12. SERVICE PLAN
-@traceable(name="service_plan_agent")
 def service_plan(state: MaintenanceState):
     print("\n>>> SERVICE PLAN AGENT")
     diagnosis = state["diagnosis"]
@@ -647,15 +635,59 @@ def service_plan(state: MaintenanceState):
     without verification.
     """
 
-    response = complete(prompt)
+    response = cortex_complete(prompt)
     state["service_plan"] = {"plan": response}
     add_audit(state,"service_plan","Service plan generated")
     return state
 
+def save_final_report_to_s3(state: MaintenanceState):
+    """Upload the final report text to S3 using values from .env."""
+    bucket = os.getenv("S3_BUCKET_NAME")
+    if not bucket:
+        return None
+
+    if boto3 is None:
+        raise ImportError(
+            "boto3 is required for S3 uploads. Install it with: pip install boto3"
+        )
+
+    report_text = state.get("final_report", "")
+    if not isinstance(report_text, str):
+        report_text = json.dumps(report_text, indent=2)
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    vehicle_id = state.get("vehicle_id", "unknown_vehicle")
+    key = f"final-reports/{vehicle_id}/{timestamp}_report.md"
+
+    region = os.getenv("AWS_DEFAULT_REGION") or os.getenv("AWS_REGION") or "us-east-1"
+    access_key = os.getenv("AWS_ACCESS_KEY_ID")
+    secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+    endpoint_url = (
+        os.getenv("AWS_S3_ENDPOINT_URL")
+    )
+
+    client_kwargs = {"region_name": region}
+    if access_key and secret_key:
+        client_kwargs["aws_access_key_id"] = access_key
+        client_kwargs["aws_secret_access_key"] = secret_key
+    if endpoint_url:
+        client_kwargs["endpoint_url"] = endpoint_url
+
+    s3 = boto3.client("s3", **client_kwargs)
+    s3.put_object(
+        Bucket=bucket,
+        Key=key,
+        Body=report_text.encode("utf-8"),
+        ContentType="text/markdown"
+    )
+
+    s3_uri = f"s3://{bucket}/{key}"
+    print(f"Final report uploaded to S3: {s3_uri}")
+    add_audit(state, "report", f"Final report saved to S3: {s3_uri}")
+    return s3_uri
 
 
 # 13. REPORT
-@traceable(name="report_agent")
 def report(state: MaintenanceState):
 
     print("\n>>> FINAL REPORT AGENT")
@@ -716,7 +748,7 @@ def report(state: MaintenanceState):
     estimate and that diagnosis is not certainty.
     """
 
-    response = complete(prompt)
+    response = cortex_complete(prompt)
 
     state["final_report"] = response
     add_audit(state,"report","Final report generated")
@@ -792,13 +824,12 @@ def build_workflow(for_web: bool = False):
     #graph.add_edge("supervisor", "telemetry")
     #graph.add_edge("supervisor","history")
 
+    # ML and RAG only depend on telemetry
     graph.add_edge("telemetry", "ml")
-    graph.add_edge("history", "ml")
-
     graph.add_edge("telemetry", "rag")
-    graph.add_edge("history", "rag")
 
-    #graph.add_edge("ml","rag")
+    # Diagnostic requires history, ML and RAG outputs
+    graph.add_edge("history", "diagnostic")
     graph.add_edge("ml", "diagnostic")
     graph.add_edge("rag", "diagnostic")
 
@@ -850,3 +881,4 @@ def build_workflow(for_web: bool = False):
     save_workflow_graph(app)
 
     return app
+
