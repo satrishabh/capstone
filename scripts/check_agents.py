@@ -1,6 +1,6 @@
 """Quick agent-by-agent diagnostic — runs each workflow node in isolation."""
 import sys, os
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from dotenv import load_dotenv
 load_dotenv()

@@ -13,12 +13,21 @@ SNOWFLAKE_SCHEMA = "PREDICTIVE_MAINTENANCE"
 
 
 def _get_secret(key, default=""):
-    """Read from Streamlit secrets (cloud) first, then env vars (local)."""
+    """Read from Streamlit secrets first, then .env env vars, then default.
+
+    Priority order:
+    1. Streamlit secrets.toml (local & cloud)
+    2. Environment variables (.env)
+    3. Default value
+    """
     try:
         import streamlit as st
-        if hasattr(st, "secrets") and key in st.secrets:
-            return st.secrets[key]
-    except Exception:
+        if hasattr(st, "secrets"):
+            try:
+                return st.secrets[key]
+            except (KeyError, AttributeError):
+                pass
+    except ImportError:
         pass
     return os.getenv(key, default)
 

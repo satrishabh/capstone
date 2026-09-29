@@ -1,78 +1,79 @@
 # Vehicle Predictive Maintenance — Agentic AI Capstone
 
-This package is a synthetic, educational implementation blueprint for:
+A LangGraph-orchestrated agent that turns vehicle telemetry into a predictive-maintenance
+report: it validates sensor readings, scores failure risk with an ML model, grounds its
+diagnosis in service-manual excerpts via RAG, and pauses for human approval on critical
+cases before generating a final report.
 
-User/API
- -> Supervisor
- -> Telemetry + History + RAG
- -> Diagnostic
- -> ML Failure Probability + Risk Decision
- -> Human Approval for critical cases
- -> Service Plan / Re-analysis
- -> Final Report
+> All RAG documents and test data are synthetic. They are not OEM documentation and must
+> not be used for real vehicle repair decisions. The bundled ML model is a small, synthetic
+> demo model — not valid for real vehicles.
 
-## Important
-All RAG documents and test data are synthetic. They are not OEM documentation and must not be used for real vehicle repair decisions.
+## Architecture
 
-## Suggested stack
-- Python
-- LangGraph for orchestration
-- LangChain for model/tool abstractions
-- scikit-learn for failure-probability model
-- Chroma/FAISS/Vertex AI Vector Search for RAG
-- FastAPI for API
-- BigQuery/Cloud SQL for history
-- Pub/Sub for telemetry streaming
-- Cloud Run or GKE for deployment
+```
+User/API request
+  -> Supervisor
+  -> Telemetry validation + History retrieval + RAG retrieval (FAISS + BM25)
+  -> ML failure-probability scoring
+  -> Diagnostic agent (telemetry + history + RAG + ML probability)
+  -> Risk engine
+  -> Human approval interrupt (if risk is CRITICAL)
+  -> Service plan / re-analysis
+  -> Final report -> saved to a Snowflake internal stage + report metadata table
+```
 
-## End-to-end execution
+The workflow graph is defined in [src/workflow.py](src/workflow.py); the state shape is in
+[src/state_schema.py](src/state_schema.py). See [langgraph_workflow.mmd](langgraph_workflow.mmd)
+for the diagram source.
 
-1. Receive vehicle_id + request.
-2. Supervisor creates tasks.
-3. Telemetry agent validates readings, thresholds and trends.
-4. History agent retrieves maintenance/fault history.
-5. RAG agent retrieves relevant synthetic service guidance.
-6. ML model produces failure probability.
-7. Diagnostic agent combines telemetry + history + RAG + ML probability.
-8. Risk engine calculates risk score.
-9. If critical: pause for human approval.
-10. Approve -> service plan.
-11. Reject -> capture reason and re-analysis.
-12. Normal -> report directly.
-13. Final report contains evidence, probability, risk, recommendation, approval state and limitations.
+## Stack
 
-## RAG ingestion
+- **Orchestration**: LangGraph + LangChain
+- **LLM**: Google Gemini (primary, [src/llm_provider.py](src/llm_provider.py)) with
+  Snowflake Cortex as fallback / embeddings provider ([src/cortex_llm.py](src/cortex_llm.py))
+- **RAG**: FAISS + BM25 hybrid retrieval over [rag_docs/](rag_docs/) ([src/rag.py](src/rag.py))
+- **ML**: scikit-learn failure-probability model ([src/ml_model.py](src/ml_model.py),
+  trained by [src/train_failure_model.py](src/train_failure_model.py))
+- **Storage**: Snowflake (telemetry, history, reports, audit logs — [src/snowflake_utils.py](src/snowflake_utils.py))
+- **UI**: Streamlit ([src/app.py](src/app.py))
+- **Tracing**: LangSmith (optional, enabled via `.env`)
 
-Example:
-    pip install langchain langchain-community chromadb sentence-transformers
+## Setup
 
-Then load every file in rag_docs/ into a vector database, split into chunks,
-create embeddings, and store metadata:
-    source
-    document_type
-    section
-    vehicle_family
-    version
+1. `pip install -r requirements.txt`
+2. Copy `.env.example` to `.env` and fill in your Gemini / Snowflake / LangSmith credentials.
+3. Copy `.streamlit/secrets.example.toml` to `.streamlit/secrets.toml` and fill in the same
+   values if running via Streamlit Cloud or `st.secrets` — see [docs/STREAMLIT_SECRETS_GUIDE.md](docs/STREAMLIT_SECRETS_GUIDE.md).
+4. Build the vector store: `python scripts/build_rag.py`
+5. (Optional) Seed Snowflake with mock fleet telemetry: `python scripts/mock_telemetry.py`
+6. Run the app: `streamlit run src/app.py`
 
-## ML warning
+## Dev / diagnostic scripts
 
-The included model is intentionally tiny and synthetic so the workflow can be demonstrated.
-It is not a valid predictive model for real vehicles. A real system requires a large,
-representative, time-aware labeled dataset, leakage prevention, calibration,
-validation by vehicle/platform, drift monitoring, and domain validation.
+All one-off CLI utilities live in [scripts/](scripts/) (not imported by the app itself):
 
-## Recommended production state
+| Script | Purpose |
+|---|---|
+| `scripts/build_rag.py` | (Re)build the FAISS + BM25 vector store from `rag_docs/` |
+| `scripts/mock_telemetry.py` | Seed Snowflake with simulated fleet telemetry |
+| `scripts/check_agents.py` | Run each workflow node in isolation as a smoke test |
+| `scripts/run_all_tests.py` | Run all 6 scenarios in `data/test_cases.json` through the full workflow |
+| `scripts/test_case1.py`, `scripts/test_case2.py` | Interactive single-scenario demo runs (prompts for human approval on interrupt) |
 
-Use a shared LangGraph state such as:
-    vehicle_id
-    user_request
-    telemetry_result
-    history_result
-    rag_evidence
-    ml_prediction
-    diagnosis
-    risk_decision
-    human_decision
-    service_plan
-    final_report
-    audit_log
+LangSmith tracing setup is documented in [docs/LANGSMITH_GUIDE.md](docs/LANGSMITH_GUIDE.md).
+
+## Repo layout
+
+```
+capstone/
+├── src/            core application modules (Streamlit app + LangGraph workflow)
+├── scripts/        standalone dev/CLI utilities
+├── tests/          automated tests
+├── docs/           setup guides
+├── data/           sample telemetry + test scenarios
+├── rag_docs/       synthetic service-manual excerpts (RAG source documents)
+├── models/         trained ML artifact
+├── vectorstore/    built FAISS + BM25 indexes
+└── logs/           audit logs written at runtime (gitignored)
+```

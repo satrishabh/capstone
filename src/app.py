@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from langgraph.types import Command
 
 from workflow import build_workflow
+from config import LANGSMITH_ENABLED, LANGSMITH_PROJECT, LANGSMITH_ENDPOINT
 from snowflake_utils import (
     load_test_cases_from_snowflake,
     get_reports_from_snowflake,
@@ -472,6 +473,43 @@ def render_sidebar():
         st.session_state.partial_state = None
         st.session_state.run_config = None
         st.rerun()
+
+    st.sidebar.divider()
+
+    # Secrets Status
+    st.sidebar.subheader("🔐 Secrets Status")
+    try:
+        import streamlit as st_secrets
+        secrets_available = bool(st_secrets.secrets)
+        if secrets_available:
+            st.sidebar.success("✓ Secrets loaded from secrets.toml")
+            with st.sidebar.expander("View loaded secrets"):
+                # Show redacted secrets (last 4 chars only)
+                redacted = {}
+                for key in st_secrets.secrets:
+                    val = st_secrets.secrets[key]
+                    if isinstance(val, str) and len(val) > 4:
+                        redacted[key] = "***" + val[-4:]
+                    else:
+                        redacted[key] = "***"
+                st.json(redacted)
+        else:
+            st.sidebar.info("ℹ Using .env fallback")
+    except Exception:
+        st.sidebar.info("ℹ Using .env fallback")
+
+    st.sidebar.divider()
+
+    # LangSmith Tracing Status
+    st.sidebar.subheader("🔍 LangSmith Tracing")
+    if LANGSMITH_ENABLED:
+        st.sidebar.success("✓ Tracing enabled")
+        st.sidebar.caption(f"Project: {LANGSMITH_PROJECT}")
+        langsmith_url = "https://smith.langchain.com/projects"
+        st.sidebar.markdown(f"[View traces →]({langsmith_url})", unsafe_allow_html=True)
+    else:
+        st.sidebar.warning("✗ Tracing disabled")
+        st.sidebar.caption("Set LANGSMITH_API_KEY to enable")
 
     st.sidebar.divider()
     if st.sidebar.button("Test Snowflake Connection"):

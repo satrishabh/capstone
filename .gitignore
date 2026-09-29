@@ -2,6 +2,10 @@
 .venv/
 .env
 .cortex
+.claude
+.streamlit/secrets.toml
+.streamlit/secrets.local.toml
+.streamlit/secrets.prod.toml
 # Python
 src/__pycache__/
 __pycache__/
@@ -9,3 +13,6 @@ __pycache__/
 
 # logs folder
 logs/
+
+# local reference clone for the langsmith-trace Claude Code skill (not part of the app)
+langsmith-skills/

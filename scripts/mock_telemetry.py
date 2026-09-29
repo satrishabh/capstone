@@ -1,6 +1,6 @@
 """Mock telemetry data generator — simulates a fleet of vehicles sending data to Snowflake."""
 import sys, os, time, random
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from dotenv import load_dotenv
 load_dotenv()

@@ -1,6 +1,6 @@
 """Run all 6 test cases through the workflow and show diverse risk results."""
 import sys, os, json
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from dotenv import load_dotenv
 load_dotenv()
