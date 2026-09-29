@@ -1,4 +1,5 @@
 from workflow import build_workflow
+from langgraph.types import Command
 def main():
     app = build_workflow()
     initial_state = {
@@ -38,10 +39,30 @@ def main():
     }
 
     result = app.invoke(initial_state,config=config)
+
+    while True:
+        state = app.get_state(config)
+
+        if not state.interrupts:
+            break
+
+        interrupt_info = state.interrupts[0]
+
+        print(interrupt_info.value.get('message'))
+
+        answer = input("\nYour response: ")
+
+        result = app.invoke(
+            Command(resume=answer),
+            config
+        )
+
     print("\n\n================================")
     print("FINAL REPORT")
     print("================================")
-    print(result.get("final_report","No report generated"))
+    final_report = result["final_report"]
+    if final_report:
+        print(final_report)
 
 if __name__ == "__main__":
     main()
