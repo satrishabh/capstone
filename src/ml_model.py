@@ -1,7 +1,9 @@
 import joblib
 import pandas as pd
 
-MODEL_PATH = "../models/failure_model.joblib"
+from pathlib import Path
+
+MODEL_PATH = str(Path(__file__).resolve().parent / ".." / "models" / "failure_model.joblib")
 
 
 FEATURES = [

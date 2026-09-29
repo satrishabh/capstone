@@ -1,7 +1,11 @@
 import json
 import os
+import sys
 import uuid
 from pathlib import Path
+
+# Ensure src/ is on the Python path for Streamlit Cloud
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -16,9 +20,10 @@ from snowflake_utils import (
 
 load_dotenv()
 
-DATA_DIR = Path("../data")
-MODEL_PATH = Path("../models/failure_model.joblib")
-VECTORSTORE_PATH = Path("../vectorstore/faiss_index")
+SRC_DIR = Path(__file__).resolve().parent
+DATA_DIR = SRC_DIR / ".." / "data"
+MODEL_PATH = SRC_DIR / ".." / "models" / "failure_model.joblib"
+VECTORSTORE_PATH = SRC_DIR / ".." / "vectorstore" / "faiss_index"
 TEST_CASES_PATH = DATA_DIR / "test_cases.json"
 
 RISK_COLORS = {
@@ -50,8 +55,6 @@ def load_test_cases():
 
 def check_prerequisites():
     issues = []
-    if not os.getenv("GOOGLE_API_KEY"):
-        issues.append("GOOGLE_API_KEY is not set in `.env`")
     if not MODEL_PATH.exists():
         issues.append(
             f"ML model missing at `{MODEL_PATH}`. Run `python train_failure_model.py`."

@@ -4,9 +4,5 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-GOOGLE_API_KEY= os.getenv("GOOGLE_API_KEY")
-
-if not GOOGLE_API_KEY:
-    raise ValueError(
-        "GOOGLE_API_KEY is missing from .env"
-    )
+# Google API key is no longer required — using Snowflake Cortex AI instead.
+# Snowflake connection is configured in snowflake_utils.py.

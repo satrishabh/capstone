@@ -1,0 +1,11 @@
+langgraph
+langchain-core
+langchain-community
+faiss-cpu
+scikit-learn
+joblib
+pandas
+numpy
+python-dotenv
+streamlit
+snowflake-connector-python

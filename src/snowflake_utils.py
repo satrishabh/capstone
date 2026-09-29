@@ -7,24 +7,36 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SNOWFLAKE_ACCOUNT = os.getenv("SNOWFLAKE_ACCOUNT", "jk73553.ap-southeast-7.aws")
-SNOWFLAKE_USER = os.getenv("SNOWFLAKE_USER", "RISHABDEVH")
-SNOWFLAKE_PASSWORD = os.getenv("SNOWFLAKE_PASSWORD", "")
-SNOWFLAKE_WAREHOUSE = os.getenv("SNOWFLAKE_WAREHOUSE", "COMPUTE_WH")
+
+def _get_secret(key, default=""):
+    """Read from Streamlit secrets (cloud) or env vars (local)."""
+    try:
+        import streamlit as st
+        return st.secrets.get(key, os.getenv(key, default))
+    except Exception:
+        return os.getenv(key, default)
+
+
+SNOWFLAKE_ACCOUNT = _get_secret("SNOWFLAKE_ACCOUNT", "jk73553.ap-southeast-7.aws")
+SNOWFLAKE_USER = _get_secret("SNOWFLAKE_USER", "RISHABDEVH")
+SNOWFLAKE_PASSWORD = _get_secret("SNOWFLAKE_PASSWORD", "")
+SNOWFLAKE_WAREHOUSE = _get_secret("SNOWFLAKE_WAREHOUSE", "COMPUTE_WH")
 SNOWFLAKE_DATABASE = "CAPSTONE_DB"
 SNOWFLAKE_SCHEMA = "PREDICTIVE_MAINTENANCE"
 
 
 def get_connection():
-    return snowflake.connector.connect(
+    params = dict(
         account=SNOWFLAKE_ACCOUNT,
         user=SNOWFLAKE_USER,
         password=SNOWFLAKE_PASSWORD,
         warehouse=SNOWFLAKE_WAREHOUSE,
         database=SNOWFLAKE_DATABASE,
         schema=SNOWFLAKE_SCHEMA,
-        authenticator="externalbrowser",
     )
+    if not SNOWFLAKE_PASSWORD:
+        params["authenticator"] = "externalbrowser"
+    return snowflake.connector.connect(**params)
 
 
 def load_test_cases_from_snowflake():

@@ -7,23 +7,31 @@ from collections import Counter
 from dotenv import load_dotenv
 
 from langchain_community.vectorstores import FAISS
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
+from cortex_llm import cortex_embed
 
 # Load environment variables
 load_dotenv()
 
-RAG_DOCS_PATH = Path("../rag_docs")
-FAISS_PATH = Path("../vectorstore/faiss_index")
-BM25_PATH = Path("../vectorstore/bm25_index")
-EMBEDDING_MODEL = "gemini-embedding-2"
+RAG_DOCS_PATH = Path(__file__).resolve().parent / ".." / "rag_docs"
+FAISS_PATH = Path(__file__).resolve().parent / ".." / "vectorstore" / "faiss_index"
+BM25_PATH = Path(__file__).resolve().parent / ".." / "vectorstore" / "bm25_index"
+
+
+class CortexEmbeddings(Embeddings):
+    """LangChain-compatible embeddings using Snowflake Cortex EMBED_TEXT_768."""
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        return [cortex_embed(t) for t in texts]
+
+    def embed_query(self, text: str) -> List[float]:
+        return cortex_embed(text)
+
 
 def get_embeddings():
-    print(f"Initializing Gemini embedding model: {EMBEDDING_MODEL}")
-
-    return GoogleGenerativeAIEmbeddings(
-        model="gemini-embedding-2"
-    )
+    print("Initializing Cortex embedding model: e5-base-v2")
+    return CortexEmbeddings()
 
 def split_text(text: str, chunk_size: int = 1000, chunk_overlap: int = 200) -> List[str]:
     """Simple text splitter without langchain_text_splitters dependency."""

@@ -20,24 +20,14 @@ from langgraph.graph import (
     END
 )
 from langgraph.types import interrupt
-from langchain_google_genai import (
-    ChatGoogleGenerativeAI
-)
-from langchain_core.messages import HumanMessage
 from state_schema import MaintenanceState
 from rag import retrieve_documents
 from snowflake_utils import save_report_to_snowflake, save_audit_log_to_snowflake
+from cortex_llm import cortex_complete
 from ml_model import (
     predict_failure_probability
 )
 from tools import analyze_telemetry
-
-
-#GEMINI LLM
-llm = ChatGoogleGenerativeAI(
-    model="gemini-3.6-flash",
-    temperature=0.4
-)
 
 def add_audit(state: MaintenanceState,node: str,message: str = ""):
     logs = state.get("audit_log",[])
@@ -49,7 +39,7 @@ def add_audit(state: MaintenanceState,node: str,message: str = ""):
 #write the logs to a file
 def write_audit_log(state: MaintenanceState):
     audit_logs = state.get("audit_log", [])
-    log_dir = Path("../logs")
+    log_dir = Path(__file__).resolve().parent / ".." / "logs"
     log_dir.mkdir(exist_ok=True)
     vehicle_id = state.get("vehicle_id", "unknown_vehicle")
     execution_id = state.get(
@@ -319,16 +309,10 @@ def diagnostic_agent(state: MaintenanceState, max_retries: int = 3):
             - Recommend physical verification before declaring component failure.
             """
 
-            response = llm.invoke(
-                [
-                    HumanMessage(
-                        content=prompt
-                    )
-                ]
-            )
+            response = cortex_complete(prompt)
 
             if response:
-                content = response.content
+                content = response
                 if isinstance(content, str):
                     diagnosis_text = content
                 elif isinstance(content, list):
@@ -647,8 +631,8 @@ def service_plan(state: MaintenanceState):
     without verification.
     """
 
-    response = llm.invoke([HumanMessage(content=prompt)])
-    state["service_plan"] = {"plan":response.content}
+    response = cortex_complete(prompt)
+    state["service_plan"] = {"plan": response}
     add_audit(state,"service_plan","Service plan generated")
     return state
 
@@ -760,15 +744,9 @@ def report(state: MaintenanceState):
     estimate and that diagnosis is not certainty.
     """
 
-    response = llm.invoke(
-        [
-            HumanMessage(
-                content=prompt
-            )
-        ]
-    )
+    response = cortex_complete(prompt)
 
-    state["final_report"] = response.content
+    state["final_report"] = response
     add_audit(state,"report","Final report generated")
 
     try:
