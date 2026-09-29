@@ -10,9 +10,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Set LangSmith project if tracing is enabled
-if os.getenv("LANGCHAIN_TRACING_V2", "").lower() == "true":
-    os.environ.setdefault("LANGCHAIN_PROJECT", "capstone-predictive-maintenance")
+# Import config to set up LangSmith environment variables
+from config import LANGSMITH_ENABLED, LANGSMITH_PROJECT, LANGSMITH_API_KEY, LANGSMITH_ENDPOINT
+
+# Import LangSmith tracing
+from langsmith import traceable
+
+# Set up LangSmith tracing via LangChain env vars (automatically used by LangChain)
+if LANGSMITH_ENABLED:
+    print(f"✓ LangSmith tracing enabled for project: {LANGSMITH_PROJECT}")
 
 try:
     import boto3
@@ -27,7 +33,7 @@ from langgraph.types import interrupt
 from state_schema import MaintenanceState
 from rag import retrieve_documents
 from snowflake_utils import save_report_to_snowflake, save_audit_log_to_snowflake, save_report_to_stage
-from cortex_llm import cortex_complete
+from llm_provider import complete, init_llm_provider
 from ml_model import (
     predict_failure_probability
 )
@@ -65,6 +71,7 @@ def write_audit_log(state: MaintenanceState):
 
 
 # 1. SUPERVISOR (Parallel)
+@traceable(name="supervisor_agent")
 def supervisor(state: MaintenanceState):
     add_audit(state,"supervisor","Workflow started")
     print("\n==============================")
@@ -86,6 +93,7 @@ def supervisor(state: MaintenanceState):
 
 
 # 2. TELEMETRY AGENT
+@traceable(name="telemetry_agent")
 def telemetry_agent(state: MaintenanceState):
     print("\n>>> TELEMETRY AGENT")
     telemetry = state.get("telemetry",{})
@@ -113,6 +121,7 @@ def telemetry_agent(state: MaintenanceState):
 
 
 # 3. HISTORY AGENT
+@traceable(name="history_agent")
 def history_agent(state: MaintenanceState):
     print("\n>>> HISTORY AGENT")
     history = state.get("history",{})
@@ -151,6 +160,7 @@ def history_agent(state: MaintenanceState):
 
 
 # 4. RAG AGENT
+@traceable(name="rag_agent")
 def rag_agent(state: MaintenanceState):
     print("\n>>> RAG AGENT")
     telemetry = state["telemetry"]["raw"]
@@ -205,6 +215,7 @@ def rag_agent(state: MaintenanceState):
 
 
 # 5. ML AGENT
+@traceable(name="ml_agent")
 def ml_agent(state: MaintenanceState):
     print("\n>>> ML FAILURE PREDICTION AGENT")
     telemetry = state["telemetry"]["raw"]
@@ -249,6 +260,7 @@ def ml_agent(state: MaintenanceState):
     }
 
 # 6. DIAGNOSTIC AGENT
+@traceable(name="diagnostic_agent")
 def diagnostic_agent(state: MaintenanceState, max_retries: int = 3):
     print("\n>>> DIAGNOSTIC AGENT")
     telemetry = state["telemetry"]
@@ -313,7 +325,7 @@ def diagnostic_agent(state: MaintenanceState, max_retries: int = 3):
             - Recommend physical verification before declaring component failure.
             """
 
-            response = cortex_complete(prompt)
+            response = complete(prompt)
 
             if response:
                 content = response
@@ -364,6 +376,7 @@ def diagonsis_validation(state : MaintenanceState) -> bool:
     return state['diagnosis_status']
 
 # 7. RISK / DECISION AGENT
+@traceable(name="risk_agent")
 def risk_agent(state: MaintenanceState):
     print("\n>>> RISK / DECISION AGENT")
     abnormalities = state["telemetry"]["abnormalities"]
@@ -535,6 +548,7 @@ def human_approval(state: MaintenanceState):
         return state
 
 
+@traceable(name="human_approval_agent")
 def human_approval_web(state: MaintenanceState):
     print("\n>>> HUMAN APPROVAL REQUIRED (web)")
     risk = state["risk_decision"]
@@ -587,6 +601,7 @@ def route_after_human(state: MaintenanceState) -> Literal[
     return "reanalyze"
 
 # 11. RE-ANALYSIS
+@traceable(name="reanalyze_agent")
 def reanalyze(state: MaintenanceState):
     print("\n>>> RE-ANALYSIS")
     feedback = state.get("human_feedback","")
@@ -602,6 +617,7 @@ def reanalyze(state: MaintenanceState):
 
 
 # 12. SERVICE PLAN
+@traceable(name="service_plan_agent")
 def service_plan(state: MaintenanceState):
     print("\n>>> SERVICE PLAN AGENT")
     diagnosis = state["diagnosis"]
@@ -635,7 +651,7 @@ def service_plan(state: MaintenanceState):
     without verification.
     """
 
-    response = cortex_complete(prompt)
+    response = complete(prompt)
     state["service_plan"] = {"plan": response}
     add_audit(state,"service_plan","Service plan generated")
     return state
@@ -688,6 +704,7 @@ def save_final_report_to_s3(state: MaintenanceState):
 
 
 # 13. REPORT
+@traceable(name="report_agent")
 def report(state: MaintenanceState):
 
     print("\n>>> FINAL REPORT AGENT")
@@ -748,7 +765,7 @@ def report(state: MaintenanceState):
     estimate and that diagnosis is not certainty.
     """
 
-    response = cortex_complete(prompt)
+    response = complete(prompt)
 
     state["final_report"] = response
     add_audit(state,"report","Final report generated")
