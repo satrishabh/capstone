@@ -1,0 +1,29 @@
+# Streamlit Configuration
+
+# Theme Settings
+[theme]
+primaryColor = "#FF6B6B"
+backgroundColor = "#0E1117"
+secondaryBackgroundColor = "#262730"
+textColor = "#FAFAFA"
+font = "sans serif"
+
+# Logger Settings
+[logger]
+level = "error"
+
+# Server Settings
+[server]
+headless = true
+port = 8501
+runOnSave = true
+maxUploadSize = 200
+
+# Client Settings
+[client]
+showErrorDetails = true
+toolbarMode = "minimal"
+
+# Logging
+[logger]
+level = "info"

@@ -13,3 +13,4 @@ streamlit
 snowflake-connector-python
 cryptography
 tenacity
+langsmith

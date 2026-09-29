@@ -476,6 +476,30 @@ def render_sidebar():
 
     st.sidebar.divider()
 
+    # Secrets Status
+    st.sidebar.subheader("🔐 Secrets Status")
+    try:
+        import streamlit as st_secrets
+        secrets_available = bool(st_secrets.secrets)
+        if secrets_available:
+            st.sidebar.success("✓ Secrets loaded from secrets.toml")
+            with st.sidebar.expander("View loaded secrets"):
+                # Show redacted secrets (last 4 chars only)
+                redacted = {}
+                for key in st_secrets.secrets:
+                    val = st_secrets.secrets[key]
+                    if isinstance(val, str) and len(val) > 4:
+                        redacted[key] = "***" + val[-4:]
+                    else:
+                        redacted[key] = "***"
+                st.json(redacted)
+        else:
+            st.sidebar.info("ℹ Using .env fallback")
+    except Exception:
+        st.sidebar.info("ℹ Using .env fallback")
+
+    st.sidebar.divider()
+
     # LangSmith Tracing Status
     st.sidebar.subheader("🔍 LangSmith Tracing")
     if LANGSMITH_ENABLED:

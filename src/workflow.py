@@ -18,12 +18,8 @@ from langsmith import traceable
 
 # Set up LangSmith tracing via LangChain env vars (automatically used by LangChain)
 if LANGSMITH_ENABLED:
-    print(f"✓ LangSmith tracing enabled for project: {LANGSMITH_PROJECT}")
+    print(f"LangSmith tracing enabled for project: {LANGSMITH_PROJECT}")
 
-try:
-    import boto3
-except ImportError:  # pragma: no cover
-    boto3 = None
 from langgraph.graph import (
     StateGraph,
     START,
@@ -656,51 +652,6 @@ def service_plan(state: MaintenanceState):
     add_audit(state,"service_plan","Service plan generated")
     return state
 
-def save_final_report_to_s3(state: MaintenanceState):
-    """Upload the final report text to S3 using values from .env."""
-    bucket = os.getenv("S3_BUCKET_NAME")
-    if not bucket:
-        return None
-
-    if boto3 is None:
-        raise ImportError(
-            "boto3 is required for S3 uploads. Install it with: pip install boto3"
-        )
-
-    report_text = state.get("final_report", "")
-    if not isinstance(report_text, str):
-        report_text = json.dumps(report_text, indent=2)
-
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    vehicle_id = state.get("vehicle_id", "unknown_vehicle")
-    key = f"final-reports/{vehicle_id}/{timestamp}_report.md"
-
-    region = os.getenv("AWS_DEFAULT_REGION") or os.getenv("AWS_REGION") or "us-east-1"
-    access_key = os.getenv("AWS_ACCESS_KEY_ID")
-    secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
-    endpoint_url = (
-        os.getenv("AWS_S3_ENDPOINT_URL")
-    )
-
-    client_kwargs = {"region_name": region}
-    if access_key and secret_key:
-        client_kwargs["aws_access_key_id"] = access_key
-        client_kwargs["aws_secret_access_key"] = secret_key
-    if endpoint_url:
-        client_kwargs["endpoint_url"] = endpoint_url
-
-    s3 = boto3.client("s3", **client_kwargs)
-    s3.put_object(
-        Bucket=bucket,
-        Key=key,
-        Body=report_text.encode("utf-8"),
-        ContentType="text/markdown"
-    )
-
-    s3_uri = f"s3://{bucket}/{key}"
-    print(f"Final report uploaded to S3: {s3_uri}")
-    add_audit(state, "report", f"Final report saved to S3: {s3_uri}")
-    return s3_uri
 
 
 # 13. REPORT
