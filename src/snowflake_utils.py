@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 import snowflake.connector
 from dotenv import load_dotenv
+from cryptography.hazmat.primitives import serialization
 
 load_dotenv()
 
@@ -22,22 +23,39 @@ def _get_secret(key, default=""):
     return os.getenv(key, default)
 
 
+def _load_private_key():
+    """Load RSA private key from secret or env var."""
+    pem_text = _get_secret("SNOWFLAKE_PRIVATE_KEY", "")
+    if not pem_text:
+        return None
+    pem_bytes = pem_text.encode("utf-8") if isinstance(pem_text, str) else pem_text
+    return serialization.load_pem_private_key(pem_bytes, password=None)
+
+
 def get_connection():
     account = _get_secret("SNOWFLAKE_ACCOUNT", "jk73553.ap-southeast-7.aws")
-    user = _get_secret("SNOWFLAKE_USER", "RISHABDEVH")
-    password = _get_secret("SNOWFLAKE_PASSWORD", "")
+    user = _get_secret("SNOWFLAKE_USER", "CAPSTONE_SVC_USER")
     warehouse = _get_secret("SNOWFLAKE_WAREHOUSE", "COMPUTE_WH")
 
     params = dict(
         account=account,
         user=user,
-        password=password,
         warehouse=warehouse,
         database=SNOWFLAKE_DATABASE,
         schema=SNOWFLAKE_SCHEMA,
     )
-    if not password:
-        params["authenticator"] = "externalbrowser"
+
+    # Try key-pair auth first, then password, then externalbrowser
+    private_key = _load_private_key()
+    if private_key:
+        params["private_key"] = private_key
+    else:
+        password = _get_secret("SNOWFLAKE_PASSWORD", "")
+        if password:
+            params["password"] = password
+        else:
+            params["authenticator"] = "externalbrowser"
+
     return snowflake.connector.connect(**params)
 
 
