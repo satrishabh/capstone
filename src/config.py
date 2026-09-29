@@ -33,7 +33,9 @@ LANGSMITH_PROJECT = os.getenv("LANGSMITH_PROJECT", "Demo")
 LANGSMITH_API_KEY = os.getenv("LANGSMITH_API_KEY", "")
 LANGSMITH_ENDPOINT = os.getenv("LANGSMITH_ENDPOINT", "https://api.smith.langchain.com")
 
-# LangSmith environment variables
+LANGSMITH_ENABLED = LANGSMITH_TRACING and bool(LANGSMITH_API_KEY)
+
+# Set LangSmith environment variables for SDK
 if LANGSMITH_ENABLED:
     os.environ["LANGSMITH_TRACING"] = "true"
     os.environ["LANGSMITH_API_KEY"] = LANGSMITH_API_KEY
@@ -45,8 +47,6 @@ os.environ["LANGCHAIN_TRACING_V2"] = "true" if LANGSMITH_TRACING else "false"
 os.environ["LANGCHAIN_PROJECT"] = LANGSMITH_PROJECT
 if LANGSMITH_API_KEY:
     os.environ["LANGCHAIN_API_KEY"] = LANGSMITH_API_KEY
-
-LANGSMITH_ENABLED = LANGSMITH_TRACING and bool(LANGSMITH_API_KEY)
 
 # Validate Configuration
 def validate_config() -> list[str]:
