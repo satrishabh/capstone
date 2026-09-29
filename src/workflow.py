@@ -581,8 +581,21 @@ def human_approval_web(state: MaintenanceState):
 
 
 # 10. ROUTE AFTER HUMAN
-def route_after_human(state: MaintenanceState) -> bool:
-    return state['human_decision']
+def route_after_human(state: MaintenanceState) -> Literal[
+    "service_plan",
+    "reanalyze"
+]:
+    decision = state.get("human_decision")
+    if decision is True:
+        return "service_plan"
+    if isinstance(decision, str) and decision.strip().upper() in {
+        "APPROVE",
+        "APPROVED",
+        "YES",
+        "TRUE",
+    }:
+        return "service_plan"
+    return "reanalyze"
 
 # 11. RE-ANALYSIS
 def reanalyze(state: MaintenanceState):
@@ -869,11 +882,8 @@ def build_workflow(for_web: bool = False):
     graph.add_edge("report",END)
     print("The graph:",graph)
 
-    if for_web:
-        from langgraph.checkpoint.memory import MemorySaver
-        app = graph.compile(checkpointer=MemorySaver())
-    else:
-        app = graph.compile()
+    from langgraph.checkpoint.memory import MemorySaver
+    app = graph.compile(checkpointer=MemorySaver())
 
     #saving the graph chart to png
     save_workflow_graph(app)

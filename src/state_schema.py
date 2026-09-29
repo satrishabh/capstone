@@ -1,4 +1,4 @@
-from typing import TypedDict, Any, List, Optional,Annotated
+from typing import TypedDict, Any, List, Optional, Union, Annotated
 import operator
 
 class MaintenanceState(TypedDict, total=False):
@@ -25,7 +25,7 @@ class MaintenanceState(TypedDict, total=False):
     risk_decision: dict
 
     #human approval
-    human_decision: bool
+    human_decision: Union[bool, str]
     human_feedback: Optional[str]
 
     #service
