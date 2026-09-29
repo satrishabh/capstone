@@ -36,7 +36,7 @@ from tools import analyze_telemetry
 #GEMINI LLM
 llm = ChatGoogleGenerativeAI(
     model="gemini-3.6-flash",
-    temperature=0
+    temperature=0.4
 )
 
 def add_audit(state: MaintenanceState,node: str,message: str = ""):
