@@ -1,0 +1,15 @@
+# Environment
+.venv/
+.env
+
+# Python
+src/__pycache__/
+__pycache__/
+*.pyc
+
+# FAISS generated files (if applicable)
+*.faiss
+*.pkl
+
+# logs folder
+logs/

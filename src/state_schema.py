@@ -21,6 +21,7 @@ class MaintenanceState(TypedDict, total=False):
 
     #diagnosis
     diagnosis: dict
+    diagnosis_status : bool
     tool_results: List[dict]
 
     #risk agent
@@ -28,7 +29,7 @@ class MaintenanceState(TypedDict, total=False):
     approval_notification: dict
 
     #human approval
-    human_decision: Optional[str]
+    human_decision: bool
     human_feedback: Optional[str]
 
     #service

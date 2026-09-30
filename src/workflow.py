@@ -1,9 +1,19 @@
+import os
 from typing import Literal
 from pathlib import Path
 from datetime import datetime, timezone
 import json
 from zoneinfo import ZoneInfo
 from datetime import datetime
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+try:
+    import boto3
+except ImportError:  # pragma: no cover
+    boto3 = None
 from langgraph.graph import (
     StateGraph,
     START,
@@ -20,6 +30,7 @@ from rag import retrieve_documents
 from ml_model import (
     predict_failure_probability
 )
+from tools import analyze_telemetry
 from tools import (
     MAINTENANCE_TOOL_MAP,
     check_parts_inventory,
@@ -37,7 +48,7 @@ from tools import (
 
 #GEMINI LLM
 llm = ChatGoogleGenerativeAI(
-    model="gemini-3.1-flash-lite",
+    model="gemini-3.6-flash",
     temperature=0
 )
 
@@ -156,128 +167,14 @@ def supervisor(state: MaintenanceState):
 def telemetry_agent(state: MaintenanceState):
     print("\n>>> TELEMETRY AGENT")
     telemetry = state.get("telemetry",{})
+    result = analyze_telemetry.invoke({
+        "telemetry": telemetry
+    })
 
-    abnormalities = []
+    abnormalities = result["abnormalities"]
 
-    #Oil pressure
-    oil_pressure = telemetry.get("oil_pressure")
-    if oil_pressure is not None:
-        if oil_pressure < 1.5:
-            abnormalities.append({
-                "parameter":
-                    "oil_pressure",
-                "value":
-                    oil_pressure,
-                "severity":
-                    "CRITICAL",
-                "reason":
-                    "Oil pressure below 1.5 bar"
-            })
-        elif oil_pressure < 2.0:
-            abnormalities.append({
-                "parameter":
-                    "oil_pressure",
-                "value":
-                    oil_pressure,
-                "severity":
-                    "WARNING",
-                "reason":
-                    "Oil pressure below normal range"
-            })
-
-    # Coolant
-    coolant = telemetry.get("coolant_temperature")
-    if coolant is not None:
-        if coolant > 110:
-            abnormalities.append({
-                "parameter":
-                    "coolant_temperature",
-                "value":
-                    coolant,
-                "severity":
-                    "CRITICAL",
-                "reason":
-                    "Engine overheating"
-            })
-
-        elif coolant > 105:
-            abnormalities.append({
-                "parameter":
-                    "coolant_temperature",
-                "value":
-                    coolant,
-                "severity":
-                    "WARNING",
-                "reason":
-                    "Temperature above normal"
-            })
-
-    # Vibration
-    vibration = telemetry.get("vibration")
-    if vibration is not None:
-        if vibration > 7:
-            abnormalities.append({
-                "parameter":
-                    "vibration",
-                "value":
-                    vibration,
-                "severity":
-                    "HIGH",
-                "reason":
-                    "High engine vibration"
-            })
-        elif vibration > 5:
-            abnormalities.append({
-                "parameter":
-                    "vibration",
-                "value":
-                    vibration,
-                "severity":
-                    "WARNING",
-                "reason":
-                    "Elevated vibration"
-            })
-
-    # Battery
-    battery = telemetry.get("battery_voltage")
-    if battery is not None:
-        if battery < 12.0:
-            abnormalities.append({
-                "parameter":
-                    "battery_voltage",
-                "value":
-                    battery,
-                "severity":
-                    "HIGH",
-                "reason":
-                    "Low battery voltage"
-            })
-        elif battery < 12.4:
-            abnormalities.append({
-                "parameter":
-                    "battery_voltage",
-                "value":
-                    battery,
-                "severity":
-                    "WARNING",
-                "reason":
-                    "Battery voltage is low"
-            })
-    """
-    state["telemetry"] = {
-        "raw": telemetry,
-        "abnormalities":
-            abnormalities
-    }
-    add_audit(state,"telemetry_agent",f"Found {len(abnormalities)} abnormal parameters")
-    return state
-    """
     return {
-        "telemetry": {
-            "raw": telemetry,
-            "abnormalities": abnormalities
-        },
-
+        "telemetry": result,
         "audit_log": [
             {
                 "timestamp": datetime.now(timezone.utc)
@@ -366,9 +263,23 @@ def rag_agent(state: MaintenanceState):
             "content":doc["content"]
         })
 
-    state["rag_evidence"] = rag_evidence
-    add_audit(state,"rag_agent",f"Retrieved {len(rag_evidence)} FAISS documents")
-    return state
+    #state["rag_evidence"] = rag_evidence
+    #add_audit(state,"rag_agent",f"Retrieved {len(rag_evidence)} FAISS documents")
+    return {
+        "rag_evidence": rag_evidence,
+        "audit_log": [
+            {
+                "timestamp": datetime.now(timezone.utc)
+                .astimezone(
+                    ZoneInfo("Asia/Kolkata")
+                )
+                .isoformat(),
+                "node": "rag_agent",
+                "message":
+                    f"Retrieved {len(rag_evidence)} FAISS documents"
+            }
+        ]
+    }
 
 
 # 5. ML AGENT
@@ -390,16 +301,33 @@ def ml_agent(state: MaintenanceState):
     else:
         label = "LOW"
 
-    state["ml_prediction_label"] = label
+    #state["ml_prediction_label"] = label
     print(f"Failure probability: "f"{probability:.2%}")
     print(f"Prediction level: {label}")
 
-    add_audit(state,"ml_agent",f"Failure probability={probability:.3f}")
-    return state
-
+    #add_audit(state,"ml_agent",f"Failure probability={probability:.3f}")
+    #return state
+    return {
+        "ml_failure_probability":probability,
+        "ml_prediction_label":label,
+        "audit_log": [
+            {
+                "timestamp":
+                    datetime.now(timezone.utc)
+                    .astimezone(
+                        ZoneInfo("Asia/Kolkata")
+                    )
+                    .isoformat(),
+                "node":
+                    "ml_agent",
+                "message":
+                    f"Failure probability={probability:.3f}"
+            }
+        ]
+    }
 
 # 6. DIAGNOSTIC AGENT
-def diagnostic_agent(state: MaintenanceState):
+def diagnostic_agent(state: MaintenanceState, max_retries: int = 3):
     print("\n>>> DIAGNOSTIC AGENT")
     telemetry = state["telemetry"]
     history = state["history"]
@@ -408,108 +336,120 @@ def diagnostic_agent(state: MaintenanceState):
     vehicle_model = state.get("vehicle_model", "unknown")
     vehicle_year = state.get("vehicle_year", "unknown")
 
-    # Convert RAG documents to context
-    rag_context = "\n\n".join(
-        [
-            (
-                f"SOURCE: {item['source']}\n"
-                f"{item['content']}"
-            )
-            for item in rag
-        ]
-    )
+    retries = 0
 
-    prompt = f"""
-    You are the Diagnostic Agent in a vehicle predictive-maintenance system.
-    
-    Your job is to reason over evidence.
-
-    DO NOT claim a component has definitely failed unless the evidence proves it.
-    Use:
-    1. Current telemetry
-    2. Historical information
-    3. Internal RAG evidence
-    4. ML failure probability
-    
-    CURRENT TELEMETRY:
-    {telemetry}
-
-    VEHICLE:
-    model={vehicle_model}, year={vehicle_year}
-    
-    HISTORY:
-    {history}
-    
-    RAG EVIDENCE:
-    {rag_context}
-    
-    ML FAILURE PROBABILITY:
-    {ml_probability:.3f}
-    
-    Produce a concise diagnostic assessment.
-    
-    Return:
-    
-    PRIMARY FINDING
-    POSSIBLE CAUSES
-    EVIDENCE
-    RECOMMENDED VERIFICATION
-    LIMITATIONS
-    
-    Remember:
-
-    - ML probability is an estimate, not proof.
-    - RAG evidence is supporting evidence, not physical proof.
-    - Telemetry anomalies may be caused by sensor faults.
-    - Recommend physical verification before declaring component failure.
-    """
-
-    diagnostic_model = llm.bind_tools(DIAGNOSTIC_TOOLS)
-    response = invoke_with_tools(
-        diagnostic_model,
-        [HumanMessage(content=prompt)],
-        state,
-    )
-
-    """
-    diagnosis_text = response.content
-    state["diagnosis"] = {
-        "assessment":
-            diagnosis_text,
-
-        "ml_failure_probability":
-            ml_probability
-    }
-    state["tool_results"] = state.get("tool_results", [])
-    """
-    content = response.content
-    if isinstance(content, str):
-        diagnosis_text = content
-    elif isinstance(content, list):
-        text_parts = []
-        for item in content:
-            if isinstance(item, str):
-                text_parts.append(item)
-            elif isinstance(item, dict):
-                if item.get("type") == "text":
-                    text_parts.append(
-                        item.get("text", "")
+    while retries < max_retries:
+        try:
+            # Convert RAG documents to context
+            rag_context = "\n\n".join(
+                [
+                    (
+                        f"SOURCE: {item['source']}\n"
+                        f"{item['content']}"
                     )
+                    for item in rag
+                ]
+            )
 
-        diagnosis_text = "\n".join(
-            part for part in text_parts if part
-        )
-    else:
-        diagnosis_text = str(content)
+            prompt = f"""
+            You are the Diagnostic Agent in a vehicle predictive-maintenance system.
+            
+            Your job is to reason over evidence.
+
+            DO NOT claim a component has definitely failed unless the evidence proves it.
+            Use:
+            1. Current telemetry
+            2. Historical information
+            3. Internal RAG evidence
+            4. ML failure probability
+            
+            CURRENT TELEMETRY:
+            {telemetry}
+
+            VEHICLE:
+            model={vehicle_model}, year={vehicle_year}
+            
+            HISTORY:
+            {history}
+            
+            RAG EVIDENCE:
+            {rag_context}
+            
+            ML FAILURE PROBABILITY:
+            {ml_probability:.3f}
+            
+            Produce a concise diagnostic assessment.
+            
+            Return:
+            
+            PRIMARY FINDING
+            POSSIBLE CAUSES
+            EVIDENCE
+            RECOMMENDED VERIFICATION
+            LIMITATIONS
+            
+            Remember:
+
+            - ML probability is an estimate, not proof.
+            - RAG evidence is supporting evidence, not physical proof.
+            - Telemetry anomalies may be caused by sensor faults.
+            - Recommend physical verification before declaring component failure.
+            """
+
+            diagnostic_model = llm.bind_tools(DIAGNOSTIC_TOOLS)
+            response = invoke_with_tools(
+                diagnostic_model,
+                [HumanMessage(content=prompt)],
+                state,
+            )
+
+            if response:
+                content = response.content
+                if isinstance(content, str):
+                    diagnosis_text = content
+                elif isinstance(content, list):
+                    text_parts = []
+                    for item in content:
+                        if isinstance(item, str):
+                            text_parts.append(item)
+                        elif isinstance(item, dict):
+                            if item.get("type") == "text":
+                                text_parts.append(
+                                    item.get("text", "")
+                                )
+
+                    diagnosis_text = "\n".join(
+                        part for part in text_parts if part
+                    )
+                else:
+                    diagnosis_text = str(content)
+                state["diagnosis"] = {
+                    "assessment": diagnosis_text,
+                    "ml_failure_probability": ml_probability
+                }
+                print("\nDiagnostic assessment:")
+                print(diagnosis_text)
+                state["diagnosis_status"] = True
+                add_audit(state,"diagnostic_agent","Diagnostic assessment generated")
+                return state
+            else:
+                retries += 1
+                continue
+        except Exception as e:
+            print(f"Attempt {retries + 1} failed: {str(e)}")
+            retries += 1
+
     state["diagnosis"] = {
-        "assessment": diagnosis_text,
+        "assessment": "Diagnosis Failed",
         "ml_failure_probability": ml_probability
     }
-    print("\nDiagnostic assessment:")
-    print(diagnosis_text)
-    add_audit(state,"diagnostic_agent","Diagnostic assessment generated")
+    state["diagnosis_status"] = False
+    print("\nDiagnostic Assessment Failed")
+    add_audit(state,"diagnostic_agent","Diagnostic assessment failed")
     return state
 
+def diagonsis_validation(state : MaintenanceState) -> bool:
+    return state['diagnosis_status']
 
 # 7. RISK / DECISION AGENT
 def risk_agent(state: MaintenanceState):
@@ -647,7 +587,6 @@ def human_approval(state: MaintenanceState):
     add_audit(state,"human_approval",f"Decision={state['human_decision']}")
     return state
     """
-
 def human_approval(state: MaintenanceState):
 
     print("\n>>> HUMAN APPROVAL REQUIRED")
@@ -672,35 +611,62 @@ def human_approval(state: MaintenanceState):
     print("-" * 60)
 
     #Get human input from terminal
-    while True:
-        human_input = input(
-            "\nEnter your decision (APPROVE/REJECT): "
-        ).strip().upper()
-        if human_input in ["APPROVE", "REJECT"]:
-            break
-        print("Invalid input. Please enter APPROVE or REJECT.")
+    approval = interrupt({
+        "message": "Do you want to approve?"
+    })
 
     #optional feedback
     feedback = input("Enter optional feedback: ").strip()
 
-    # Store human decision
-    state["human_decision"] = human_input
-    state["human_feedback"] = feedback
-    print(f"\nHuman decision: {human_input}")
+    if approval.lower() in ["approve", "yes", "true", "y"]:
+        state["human_decision"] = True
+        state["human_feedback"] = feedback
+        add_audit(state,"human_approval",f"Decision={state['human_decision']}")
+        return state
+    else:
+        state["human_decision"] = False
+        state["human_feedback"] = feedback
+        add_audit(state,"human_approval",f"Decision={state['human_decision']}")
+        return state
 
-    if feedback:
-        print(f"Human feedback: {feedback}")
 
-    add_audit(state,"human_approval",f"Decision={human_input}, Feedback={feedback}")
+def human_approval_web(state: MaintenanceState):
+    print("\n>>> HUMAN APPROVAL REQUIRED (web)")
+    risk = state["risk_decision"]
+    diagnosis = state["diagnosis"]
+    approval_request = {
+        "message": (
+            "Critical vehicle maintenance "
+            "decision requires human approval."
+        ),
+        "vehicle_id": state["vehicle_id"],
+        "risk_score": risk["risk_score"],
+        "risk_level": risk["risk_level"],
+        "diagnosis": diagnosis,
+        "options": ["APPROVE", "REJECT"],
+    }
+
+    human_response = interrupt(approval_request)
+
+    if isinstance(human_response, dict):
+        state["human_decision"] = human_response.get("decision")
+        state["human_feedback"] = human_response.get("feedback", "")
+    else:
+        state["human_decision"] = str(human_response)
+        state["human_feedback"] = ""
+
+    print("Human decision:", state["human_decision"])
+    add_audit(
+        state,
+        "human_approval",
+        f"Decision={state['human_decision']}, Feedback={state.get('human_feedback', '')}",
+    )
     return state
 
-# 10. ROUTE AFTER HUMAN
-def route_after_human(state: MaintenanceState) -> Literal["service_plan","reanalyze"]:
-    decision = (state.get("human_decision"))
-    if decision == "APPROVE":
-        return "service_plan"
-    return "reanalyze"
 
+# 10. ROUTE AFTER HUMAN
+def route_after_human(state: MaintenanceState) -> bool:
+    return state['human_decision']
 
 # 11. RE-ANALYSIS
 def reanalyze(state: MaintenanceState):
@@ -764,6 +730,60 @@ def service_plan(state: MaintenanceState):
     state["service_plan"] = {"plan":response.content}
     add_audit(state,"service_plan","Service plan generated")
     return state
+
+def save_final_report_to_s3(state: MaintenanceState):
+    """Upload the final report text to S3 using values from .env."""
+    bucket = (
+        os.getenv("S3_BUCKET_NAME")
+        or os.getenv("AWS_S3_BUCKET")
+        or os.getenv("S3_BUCKET")
+    )
+    if not bucket:
+        print("S3 upload skipped: no bucket configured in .env (S3_BUCKET_NAME/AWS_S3_BUCKET).")
+        return None
+
+    if boto3 is None:
+        raise ImportError(
+            "boto3 is required for S3 uploads. Install it with: pip install boto3"
+        )
+
+    report_text = state.get("final_report", "")
+    if not isinstance(report_text, str):
+        report_text = json.dumps(report_text, indent=2)
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    vehicle_id = state.get("vehicle_id", "unknown_vehicle")
+    key = f"final-reports/{vehicle_id}/{timestamp}_report.md"
+
+    region = os.getenv("AWS_DEFAULT_REGION") or os.getenv("AWS_REGION") or "us-east-1"
+    access_key = os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("S3_ACCESS_KEY_ID")
+    secret_key = os.getenv("AWS_SECRET_ACCESS_KEY") or os.getenv("S3_SECRET_ACCESS_KEY")
+    endpoint_url = (
+        os.getenv("AWS_S3_ENDPOINT_URL")
+        or os.getenv("S3_ENDPOINT_URL")
+        or os.getenv("S3_ENDPOINT")
+    )
+
+    client_kwargs = {"region_name": region}
+    if access_key and secret_key:
+        client_kwargs["aws_access_key_id"] = access_key
+        client_kwargs["aws_secret_access_key"] = secret_key
+    if endpoint_url:
+        client_kwargs["endpoint_url"] = endpoint_url
+
+    s3 = boto3.client("s3", **client_kwargs)
+    s3.put_object(
+        Bucket=bucket,
+        Key=key,
+        Body=report_text.encode("utf-8"),
+        ContentType="text/markdown"
+    )
+
+    s3_uri = f"s3://{bucket}/{key}"
+    print(f"Final report uploaded to S3: {s3_uri}")
+    add_audit(state, "report", f"Final report saved to S3: {s3_uri}")
+    return s3_uri
+
 
 # 13. REPORT
 def report(state: MaintenanceState):
@@ -843,6 +863,12 @@ def report(state: MaintenanceState):
     state["final_report"] = response.content
     add_audit(state,"report","Final report generated")
 
+    try:
+        save_final_report_to_s3(state)
+    except Exception as exc:
+        print(f"S3 upload failed: {exc}")
+        add_audit(state, "report", f"S3 upload failed: {exc}")
+
     audit_file = write_audit_log(state)
     print("\nAudit log written to:")
     print(audit_file)
@@ -863,38 +889,50 @@ def save_workflow_graph(app):
 
 
 # BUILD GRAPH
-def build_workflow():
+def build_workflow(for_web: bool = False):
 
     graph = StateGraph(MaintenanceState)
 
+    approval_node = human_approval_web if for_web else human_approval
+
     # Nodes
-    graph.add_node("supervisor",supervisor)
+    #graph.add_node("supervisor",supervisor)
     graph.add_node("telemetry",telemetry_agent)
     graph.add_node("history",history_agent)
     graph.add_node("rag",rag_agent)
     graph.add_node("ml",ml_agent)
     graph.add_node("diagnostic",diagnostic_agent)
     graph.add_node("risk",risk_agent)
-    graph.add_node("human_approval",human_approval)
+    graph.add_node("human_approval",approval_node)
     graph.add_node("reanalyze",reanalyze)
     graph.add_node("service_plan",service_plan)
     graph.add_node("report",report)
 
 
-    # START
-    graph.add_edge(START,"supervisor")
+    # START - Parallel Execution
+    graph.add_edge(START,"telemetry")
+    graph.add_edge(START, "history")
 
     # Supervisor - Parallel execution
-    graph.add_edge("supervisor", "telemetry")
-    graph.add_edge("supervisor","history")
+    #graph.add_edge("supervisor", "telemetry")
+    #graph.add_edge("supervisor","history")
 
     graph.add_edge("telemetry", "ml")
     graph.add_edge("history", "ml")
 
-    graph.add_edge("ml","rag")
+    graph.add_edge("telemetry", "rag")
+    graph.add_edge("history", "rag")
+
+    #graph.add_edge("ml","rag")
+    graph.add_edge("ml", "diagnostic")
     graph.add_edge("rag", "diagnostic")
 
-    graph.add_edge("diagnostic","risk")
+    
+    graph.add_conditional_edges("diagnostic",diagonsis_validation,
+                                {
+                                    True:"risk",
+                                    False:END
+                                })
 
     # Risk conditional routing
     graph.add_conditional_edges("risk",route_after_risk,
@@ -929,7 +967,12 @@ def build_workflow():
     # Final
     graph.add_edge("report",END)
     print("The graph:",graph)
-    app=graph.compile()
+
+    if for_web:
+        from langgraph.checkpoint.memory import MemorySaver
+        app = graph.compile(checkpointer=MemorySaver())
+    else:
+        app = graph.compile()
 
     #saving the graph chart to png
     save_workflow_graph(app)
