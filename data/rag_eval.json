@@ -1,0 +1,14 @@
+[
+  {
+    "question": "What are common causes of low engine oil pressure?",
+    "expected_doc_id": "engine_oil_pressure.md"
+  },
+  {
+    "question": "What should be checked when the engine coolant temperature is high?",
+    "expected_doc_id": "cooling_system.md"
+  },
+  {
+    "question": "How should low battery voltage be diagnosed?",
+    "expected_doc_id": "battery_and_electrical.md"
+  }
+]

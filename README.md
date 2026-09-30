@@ -54,6 +54,29 @@ create embeddings, and store metadata:
     vehicle_family
     version
 
+## RAG version workflow
+
+RAG indexes are immutable FAISS versions. The index ID changes when the embedding
+model, chunk size, chunk overlap, or document IDs/text change. Query-time settings
+such as `top_k`, reranker, and prompt version are recorded but do not change the
+index ID. Set `RAG_REGISTRY_PATH` to override the default `data/rag_registry.json`.
+
+Run the commands from `src` so the existing RAG helpers are importable:
+
+```powershell
+python -m rag_versioning.cli build --notes "baseline corpus"
+python -m rag_versioning.cli eval rag-<version-id> --eval-set ..\data\rag_eval.json
+python -m rag_versioning.cli activate rag-<version-id>
+python -m rag_versioning.cli rollback
+```
+
+The eval file is a JSON array of `{"question": "...", "expected_doc_id": "..."}`
+records. `list` shows registered versions, `eval <id> --against <id>` compares hit
+rate and MRR, and `gc --keep N` removes older versions except the active version and
+versions retained in rollback history. Before the first activation, the workflow
+temporarily falls back to the legacy FAISS index and logs it as
+`legacy-unversioned`.
+
 ## ML warning
 
 The included model is intentionally tiny and synthetic so the workflow can be demonstrated.

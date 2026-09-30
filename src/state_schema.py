@@ -14,6 +14,8 @@ class MaintenanceState(TypedDict, total=False):
 
     #RAG
     rag_evidence: List[dict]
+    rag_version: str
+    rag_doc_ids: List[str]
 
     #ML
     ml_failure_probability: float

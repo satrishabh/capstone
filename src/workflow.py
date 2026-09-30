@@ -1,4 +1,5 @@
 import os
+import logging
 from typing import Literal
 from pathlib import Path
 from datetime import datetime, timezone
@@ -27,6 +28,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.messages import ToolMessage
 from state_schema import MaintenanceState
 from rag import retrieve_documents
+from rag_versioning.retriever import NoActiveVersionError, retrieve as retrieve_rag_version
 from ml_model import (
     predict_failure_probability
 )
@@ -73,6 +75,7 @@ SERVICE_PLANNING_TOOLS = [
 ]
 
 REPORT_TOOLS = [send_report, upload_to_dashboard]
+logger = logging.getLogger(__name__)
 
 
 def invoke_with_tools(model, messages, state: MaintenanceState):
@@ -252,21 +255,55 @@ def rag_agent(state: MaintenanceState):
     print("FAISS Query:")
     print(query)
 
-    documents = retrieve_documents(
-        query=query,
-        k=5
+    try:
+        retrieval = retrieve_rag_version(query)
+        version_id = retrieval["version_id"]
+        doc_ids = retrieval["doc_ids"]
+        documents = [
+            {"source": doc_id, "doc_id": doc_id, "content": content, "score": score}
+            for doc_id, content, score in zip(
+                retrieval["doc_ids"], retrieval["chunks"], retrieval["scores"]
+            )
+        ]
+    except NoActiveVersionError:
+        legacy_documents = retrieve_documents(query=query, k=5)
+        version_id = "legacy-unversioned"
+        doc_ids = [doc.get("source", "unknown") for doc in legacy_documents]
+        documents = [
+            {
+                **doc,
+                "doc_id": doc.get("source", "unknown"),
+            }
+            for doc in legacy_documents
+        ]
+
+    logger.info(
+        json.dumps(
+            {
+                "event": "rag_query",
+                "query": query,
+                "rag_version": version_id,
+                "doc_ids": doc_ids,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
     )
     rag_evidence = []
     for doc in documents:
         rag_evidence.append({
             "source":doc["source"],
-            "content":doc["content"]
+            "doc_id": doc["doc_id"],
+            "content":doc["content"],
+            "score": doc.get("score"),
         })
 
     #state["rag_evidence"] = rag_evidence
     #add_audit(state,"rag_agent",f"Retrieved {len(rag_evidence)} FAISS documents")
     return {
         "rag_evidence": rag_evidence,
+        "rag_version": version_id,
+        "rag_doc_ids": doc_ids,
         "audit_log": [
             {
                 "timestamp": datetime.now(timezone.utc)
@@ -276,7 +313,8 @@ def rag_agent(state: MaintenanceState):
                 .isoformat(),
                 "node": "rag_agent",
                 "message":
-                    f"Retrieved {len(rag_evidence)} FAISS documents"
+                    f"Retrieved {len(rag_evidence)} FAISS documents; "
+                    f"rag_version={version_id}; doc_ids={json.dumps(doc_ids)}"
             }
         ]
     }
