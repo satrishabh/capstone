@@ -1,0 +1,20 @@
+{
+  "active": "rag-d3b0db667d",
+  "history": [],
+  "versions": {
+    "rag-d3b0db667d": {
+      "config": {
+        "chunk_overlap": 200,
+        "chunk_size": 1000,
+        "embedding_model": "gemini-embedding-2",
+        "prompt_version": "v1",
+        "reranker": "hybrid",
+        "top_k": 5
+      },
+      "corpus_hash": "1e3d4ace8fe2130810e300ccd9a6a5ae4d40998c00df1ec3dec543eddf9092e8",
+      "created_at": "2026-09-30T04:24:26.063028+00:00",
+      "notes": "baseline",
+      "num_docs": 7
+    }
+  }
+}
