@@ -9,6 +9,8 @@ class MaintenanceState(TypedDict, total=False):
     #vehicle data
     telemetry: dict
     history: dict
+    vehicle_model: str
+    vehicle_year: int
 
     #RAG
     rag_evidence: List[dict]
@@ -19,9 +21,11 @@ class MaintenanceState(TypedDict, total=False):
 
     #diagnosis
     diagnosis: dict
+    tool_results: List[dict]
 
     #risk agent
     risk_decision: dict
+    approval_notification: dict
 
     #human approval
     human_decision: Optional[str]

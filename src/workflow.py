@@ -14,10 +14,24 @@ from langchain_google_genai import (
     ChatGoogleGenerativeAI
 )
 from langchain_core.messages import HumanMessage
+from langchain_core.messages import ToolMessage
 from state_schema import MaintenanceState
 from rag import retrieve_documents
 from ml_model import (
     predict_failure_probability
+)
+from tools import (
+    MAINTENANCE_TOOL_MAP,
+    check_parts_inventory,
+    check_warranty_status,
+    estimate_repair_cost,
+    schedule_service_appointment,
+    order_replacement_parts,
+    create_work_order,
+    notify_driver,
+    send_approval_request,
+    send_report,
+    upload_to_dashboard,
 )
 
 
@@ -26,6 +40,65 @@ llm = ChatGoogleGenerativeAI(
     model="gemini-3.1-flash-lite",
     temperature=0
 )
+
+DIAGNOSTIC_TOOLS = [
+    MAINTENANCE_TOOL_MAP[name]
+    for name in (
+        "get_additional_telemetry",
+        "lookup_dtc_code",
+        "get_similar_fleet_cases",
+        "check_recalls_and_tsbs",
+    )
+]
+
+SERVICE_PLANNING_TOOLS = [
+    check_parts_inventory,
+    check_warranty_status,
+    estimate_repair_cost,
+    schedule_service_appointment,
+    order_replacement_parts,
+    create_work_order,
+    notify_driver,
+]
+
+REPORT_TOOLS = [send_report, upload_to_dashboard]
+
+
+def invoke_with_tools(model, messages, state: MaintenanceState):
+    """Run a bounded tool loop and retain results in workflow state."""
+    response = model.invoke(messages)
+    tool_results = state.get("tool_results", [])
+
+    for _ in range(4):
+        tool_calls = getattr(response, "tool_calls", [])
+        if not tool_calls:
+            state["tool_results"] = tool_results
+            return response
+
+        messages = [*messages, response]
+        for tool_call in tool_calls:
+            tool_name = tool_call["name"]
+            tool = MAINTENANCE_TOOL_MAP.get(tool_name)
+            if tool is None:
+                result = {"status": "error", "reason": "Unknown tool."}
+            else:
+                try:
+                    result = tool.invoke(tool_call.get("args", {}))
+                except Exception as error:
+                    result = {"status": "error", "reason": str(error)}
+
+            tool_results.append({"tool": tool_name, "result": result})
+            messages.append(
+                ToolMessage(
+                    content=json.dumps(result, default=str),
+                    tool_call_id=tool_call["id"],
+                )
+            )
+
+        response = model.invoke(messages)
+
+    state["tool_results"] = tool_results
+    return response
 
 def add_audit(state: MaintenanceState,node: str,message: str = ""):
     logs = state.get("audit_log",[])
@@ -332,6 +405,8 @@ def diagnostic_agent(state: MaintenanceState):
     history = state["history"]
     rag = state.get("rag_evidence",[])
     ml_probability = state.get("ml_failure_probability",0.0)
+    vehicle_model = state.get("vehicle_model", "unknown")
+    vehicle_year = state.get("vehicle_year", "unknown")
 
     # Convert RAG documents to context
     rag_context = "\n\n".join(
@@ -358,6 +433,9 @@ def diagnostic_agent(state: MaintenanceState):
     
     CURRENT TELEMETRY:
     {telemetry}
+
+    VEHICLE:
+    model={vehicle_model}, year={vehicle_year}
     
     HISTORY:
     {history}
@@ -386,12 +464,11 @@ def diagnostic_agent(state: MaintenanceState):
     - Recommend physical verification before declaring component failure.
     """
 
-    response = llm.invoke(
-        [
-            HumanMessage(
-                content=prompt
-            )
-        ]
+    diagnostic_model = llm.bind_tools(DIAGNOSTIC_TOOLS)
+    response = invoke_with_tools(
+        diagnostic_model,
+        [HumanMessage(content=prompt)],
+        state,
     )
 
     """
@@ -403,6 +480,7 @@ def diagnostic_agent(state: MaintenanceState):
         "ml_failure_probability":
             ml_probability
     }
+    state["tool_results"] = state.get("tool_results", [])
     """
     content = response.content
     if isinstance(content, str):
@@ -494,6 +572,13 @@ def risk_agent(state: MaintenanceState):
                 "Automatic reporting permitted."
             )
     }
+    if risk_level == "CRITICAL":
+        notification = send_approval_request.invoke({"channel": "email"})
+        state["approval_notification"] = notification
+        state.setdefault("tool_results", []).append({
+            "tool": "send_approval_request",
+            "result": notification,
+        })
     print(f"Risk score: {score}/100")
     print(f"Risk level: {risk_level}")
     add_audit(state,"risk_agent",f"Risk={risk_level}, score={score}")
@@ -661,12 +746,21 @@ def service_plan(state: MaintenanceState):
     3. Diagnostic checks
     4. Potential service actions
     5. Post-service validation
+
+    The human approval branch has already approved this planning step. Use
+    service execution tools only when the request explicitly asks to schedule,
+    order, create, or notify; otherwise return a plan without side effects.
     
     Do not recommend replacing expensive components
     without verification.
     """
 
-    response = llm.invoke([HumanMessage(content=prompt)])
+    planning_model = llm.bind_tools(SERVICE_PLANNING_TOOLS)
+    response = invoke_with_tools(
+        planning_model,
+        [HumanMessage(content=prompt)],
+        state,
+    )
     state["service_plan"] = {"plan":response.content}
     add_audit(state,"service_plan","Service plan generated")
     return state
@@ -680,6 +774,7 @@ def report(state: MaintenanceState):
     history = state["history"]
     diagnosis = state.get("diagnosis",{})
     risk = state.get("risk_decision",{})
+    tool_results = state.get("tool_results", [])
     probability = state.get("ml_failure_probability",0)
     service = state.get("service_plan",{})
 
@@ -706,6 +801,9 @@ def report(state: MaintenanceState):
     
     Risk:
     {risk}
+
+    Tool Results:
+    {tool_results}
     
     Human Decision:
     {human_decision}
@@ -730,14 +828,16 @@ def report(state: MaintenanceState):
     
     Clearly state that the ML probability is an
     estimate and that diagnosis is not certainty.
+
+    Only use report-delivery tools when the user request explicitly asks for
+    delivery or dashboard upload.
     """
 
-    response = llm.invoke(
-        [
-            HumanMessage(
-                content=prompt
-            )
-        ]
+    report_model = llm.bind_tools(REPORT_TOOLS)
+    response = invoke_with_tools(
+        report_model,
+        [HumanMessage(content=prompt)],
+        state,
     )
 
     state["final_report"] = response.content
